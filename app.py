@@ -17,17 +17,10 @@ API_URL_MD5 = (
     "https://wtxmd52.tele68.com/v1/txmd5/lite-sessions"
     "?cp=R&cl=R&pf=web&at=d35795e07a393f91815436933a4852df"
 )
-API_URL_HU = (
-    "https://wtx.tele68.com/v1/tx/lite-sessions"
-    "?cp=R&cl=R&pf=web&at=4b53d17c817943086def89a78d10a2eb"
-)
 
 HISTORY_CACHE = {}
-HU_HISTORY_CACHE = {}
 RESET_ID = 0
-HU_RESET_ID = 0
 PREDICTION_LOG = {}
-HU_PREDICTION_LOG = {}
 MAX_LOG_SIZE = 3000
 LOG_FILE = "prediction_log.json"
 
@@ -64,19 +57,19 @@ SIGNAL_NAMES = {
     'cycle_212':    'Chu kỳ 2-1-2',
     'cycle_122':    'Chu kỳ 1-2-2',
     'cycle_221':    'Chu kỳ 2-2-1',
+    'cycle_1234':   'Chu kỳ 1-2-3-4',
+    'cycle_2341':   'Chu kỳ 2-3-4-1',
+    'cycle_3456':   'Chu kỳ 3-4-5-6',
+    'cycle_4_4':    'Chu kỳ 4-4',
     'auto_cycle':   'Chu kỳ tự động',
     'pattern_sim':  'Tương đồng mẫu',
     'regime':       'Chế độ thị trường',
     'flip_break':   'Bẻ cầu đảo',
     'run_break':    'Bẻ run dài',
-    'cross_game':   'Đối chiếu chéo',
-    'hu_dice_pattern':   'Hũ · Lệch điểm',
-    'hu_streak_predict': 'Hũ · Bẻ ngắn',
-    'hu_momentum_boost': 'Hũ · Điểm+chiều',
-    'ngram_2':          'N-gram 2',
-    'ngram_3':          'N-gram 3',
-    'ngram_4':          'N-gram 4',
-    'ngram_5':          'N-gram 5',
+    'ngram_2':      'N-gram 2',
+    'ngram_3':      'N-gram 3',
+    'ngram_4':      'N-gram 4',
+    'ngram_5':      'N-gram 5',
     'mirror_pattern':   'Đối xứng đảo',
     'reverse_trend':    'Đảo xu hướng',
     'palindrome_check': 'Cầu đối xứng',
@@ -84,10 +77,6 @@ SIGNAL_NAMES = {
     'chi_square':       'Kiểm định lệch',
     'runs_prediction':  'Chuỗi run-length',
     'transition_matrix': 'Ma trận chuyển',
-    'cycle_1234':       'Chu kỳ 1-2-3-4',
-    'cycle_2341':       'Chu kỳ 2-3-4-1',
-    'cycle_3456':       'Chu kỳ 3-4-5-6',
-    'cycle_4_4':        'Chu kỳ 4-4',
     'double_break':     'Bẻ đôi',
     'signal_consensus': 'Đồng thuận tín hiệu',
     'signal_dissent':   'Phản biện tín hiệu',
@@ -107,6 +96,11 @@ SIGNAL_NAMES = {
     'markov_weighted':  'Markov trọng số',
     'ensemble_boost':   'Ensemble boost',
     'decision_tree':    'Cây quyết định',
+    # V8.0 NEW
+    'streak_aware':     'Streak-aware',
+    'tier2_boost':      'Tier-2 boost',
+    'volatility_regime': 'Regime biến động',
+    'cascade_pattern':  'Mẫu tầng',
 }
 
 
@@ -114,17 +108,15 @@ SIGNAL_NAMES = {
 # PERSISTENCE
 # =====================================================================
 def _load_log():
-    global PREDICTION_LOG, HU_PREDICTION_LOG, RESET_ID, HU_RESET_ID
+    global PREDICTION_LOG, RESET_ID
     if not os.path.exists(LOG_FILE):
         return
     try:
         with open(LOG_FILE, 'r', encoding='utf-8') as f:
             data = json.load(f)
         PREDICTION_LOG = {int(k): v for k, v in data.get('log', {}).items()}
-        HU_PREDICTION_LOG = {int(k): v for k, v in data.get('hu_log', {}).items()}
         RESET_ID = int(data.get('reset_id', 0))
-        HU_RESET_ID = int(data.get('hu_reset_id', 0))
-        print(f"[LOG] Loaded {len(PREDICTION_LOG)} TX + {len(HU_PREDICTION_LOG)} HU")
+        print(f"[LOG] Loaded {len(PREDICTION_LOG)} predictions")
     except Exception as e:
         print(f"[LOG] Load failed: {e}")
 
@@ -132,12 +124,7 @@ def _load_log():
 def _save_log():
     try:
         with open(LOG_FILE, 'w', encoding='utf-8') as f:
-            json.dump({
-                'log': PREDICTION_LOG,
-                'hu_log': HU_PREDICTION_LOG,
-                'reset_id': RESET_ID,
-                'hu_reset_id': HU_RESET_ID,
-            }, f)
+            json.dump({'log': PREDICTION_LOG, 'reset_id': RESET_ID}, f)
     except Exception as e:
         print(f"[LOG] Save failed: {e}")
 
@@ -171,7 +158,7 @@ def _entropy(results):
 
 
 # =====================================================================
-# PREDICTOR V7.1
+# PREDICTOR V8.0 - MD5 ONLY
 # =====================================================================
 class MultiStrategyPredictor:
     _STRATEGY_TRACK = defaultdict(lambda: {'hit': 0, 'miss': 0, 'last_len': 0})
@@ -388,6 +375,120 @@ class MultiStrategyPredictor:
             return ('Xỉu' if r[-1] == 'Tài' else 'Tài'), 62, 1.10
         return None, 0, 0
 
+    # ==================== V8.0 NEW ====================
+    @classmethod
+    def _streak_aware(cls, valid):
+        """Streak-aware ensemble: điều chỉnh theo độ dài streak hiện tại."""
+        if len(valid) < 15:
+            return None, 0, 0
+        r = [v['result'] for v in valid]
+        cur_len, cur_val = cls._tail_run(r)
+        if cur_len == 1:
+            # Streak vừa đổi: dựa vào pattern trước đó
+            prev_run, prev_val = cls._tail_run(r[:-1])
+            if prev_run >= 3:
+                return cur_val, 62, 1.10
+            return None, 0, 0
+        if cur_len == 2:
+            # Streak 2: follow momentum mạnh
+            return cur_val, 58, 0.95
+        if cur_len >= 7:
+            # Streak rất dài: bẻ
+            opp = 'Xỉu' if cur_val == 'Tài' else 'Tài'
+            return opp, 70, 1.20
+        return None, 0, 0
+
+    @classmethod
+    def _tier2_boost(cls, valid):
+        """Tier-2 boost: signals tier-2 khi tier-1 không đồng thuận."""
+        if len(valid) < 20:
+            return None, 0, 0
+        # Tier-2 = Markov1 + weighted + recency
+        t2 = [
+            cls._markov_order1(valid),
+            cls._weighted_freq(valid),
+            cls._recency_streak(valid),
+            cls._momentum(valid),
+        ]
+        votes = {'Tài': 0.0, 'Xỉu': 0.0}
+        count = 0
+        for p, c, w in t2:
+            if p:
+                votes[p] += c * w
+                count += 1
+        if count < 3:
+            return None, 0, 0
+        total = votes['Tài'] + votes['Xỉu']
+        if total == 0:
+            return None, 0, 0
+        if votes['Tài'] / total >= 0.68:
+            return 'Tài', min(int(votes['Tài'] / total * 100), 76), 0.90
+        if votes['Xỉu'] / total >= 0.68:
+            return 'Xỉu', min(int(votes['Xỉu'] / total * 100), 76), 0.90
+        return None, 0, 0
+
+    @classmethod
+    def _volatility_regime(cls, valid):
+        """Regime biến động: chia thành 3 chế độ."""
+        if len(valid) < 25:
+            return None, 0, 0
+        r = [v['result'] for v in valid[-20:]]
+        flips = sum(1 for i in range(1, len(r)) if r[i] != r[i - 1])
+        flip_ratio = flips / (len(r) - 1)
+        runs = _run_lengths(r)
+        avg_run = sum(runs) / len(runs)
+        p_tai = cls._seg_ratio(r, 20)
+
+        # HIGH volatility (>0.75): alternating → đảo
+        if flip_ratio >= 0.75:
+            return ('Xỉu' if r[-1] == 'Tài' else 'Tài'), 66, 1.15
+        # LOW volatility (<0.25): streaky → follow hoặc bẻ
+        if flip_ratio <= 0.25:
+            cur_len, cur_val = cls._tail_run(r)
+            if cur_len <= 3:
+                return cur_val, 60, 0.95
+            if cur_len >= 5:
+                opp = 'Xỉu' if cur_val == 'Tài' else 'Tài'
+                return opp, 64, 1.10
+        # MEDIUM: dùng majority trend
+        if 0.40 <= flip_ratio <= 0.60:
+            if p_tai >= 0.60:
+                return 'Tài', 58, 0.95
+            if p_tai <= 0.40:
+                return 'Xỉu', 58, 0.95
+        return None, 0, 0
+
+    @classmethod
+    def _cascade_pattern(cls, valid):
+        """Mẫu tầng: kiểm tra pattern ở nhiều scale (2,3,5,8)."""
+        if len(valid) < 20:
+            return None, 0, 0
+        r = [v['result'] for v in valid]
+        results = []
+        for scale in (2, 3, 5, 8):
+            if len(r) < scale + 5:
+                continue
+            pat = tuple(r[-scale:])
+            matches = []
+            for i in range(len(r) - scale):
+                if tuple(r[i:i + scale]) == pat and i + scale < len(r):
+                    matches.append(r[i + scale])
+            if len(matches) >= 2:
+                c = Counter(matches)
+                top, cnt = c.most_common(1)[0]
+                ratio = cnt / len(matches)
+                if ratio >= 0.70:
+                    results.append((scale, top, ratio))
+        if not results:
+            return None, 0, 0
+        # Ưu tiên scale lớn hơn
+        results.sort(key=lambda x: x[0], reverse=True)
+        scale, top, ratio = results[0]
+        conf = min(55 + int(ratio * 25) + scale * 2, 82)
+        weight = 1.05 + (scale / 10)
+        return top, conf, min(weight, 1.6)
+
+    # ==================== HARMONIC / WAVELET ====================
     @classmethod
     def _harmonic_pattern(cls, r):
         if len(r) < 12:
@@ -764,119 +865,6 @@ class MultiStrategyPredictor:
             opp = 'Xỉu' if cur_val == 'Tài' else 'Tài'
             conf = min(55 + int(maturity * 20), 75)
             return opp, conf, 1.10
-        return None, 0, 0
-
-    # ==================== HU SPECIFIC ====================
-    @classmethod
-    def _hu_dice_pattern(cls, valid):
-        if len(valid) < 10:
-            return None, 0, 0
-        points = [v['total'] for v in valid[-30:] if v.get('total')]
-        if len(points) < 10:
-            return None, 0, 0
-        recent_10 = points[-10:]
-        avg_10 = sum(recent_10) / 10
-        avg_30 = sum(points) / len(points)
-        if avg_10 > 12.5 and avg_10 - avg_30 >= 1.0:
-            if avg_10 >= 13.5:
-                return 'Xỉu', 65, 1.20
-            return 'Tài', 60, 1.05
-        if avg_10 < 9.5 and avg_30 - avg_10 >= 1.0:
-            if avg_10 <= 8.5:
-                return 'Tài', 65, 1.20
-            return 'Xỉu', 60, 1.05
-        if len(points) >= 6:
-            last6 = points[-6:]
-            last3 = points[-3:]
-            if len(valid) >= 3:
-                last3_res = [v['result'] for v in valid[-3:]]
-                if all(x == 'Tài' for x in last3_res):
-                    if sum(last3) / 3 > sum(last6) / 6 + 1.5:
-                        return 'Xỉu', 62, 1.10
-                if all(x == 'Xỉu' for x in last3_res):
-                    if sum(last3) / 3 < sum(last6) / 6 - 1.5:
-                        return 'Tài', 62, 1.10
-        return None, 0, 0
-
-    @classmethod
-    def _hu_streak_predict(cls, valid):
-        if len(valid) < 12:
-            return None, 0, 0
-        r = [v['result'] for v in valid]
-        cur_len, cur_val = cls._tail_run(r)
-        if cur_len < 2 or cur_len > 6:
-            return None, 0, 0
-        runs = _run_lengths(r)
-        breaks, totals = 0, 0
-        pos = 0
-        for rlen in runs[:-1]:
-            if rlen == cur_len:
-                totals += 1
-                if pos + rlen < len(r):
-                    breaks += 1
-            pos += rlen
-        if totals < 2:
-            return None, 0, 0
-        p_break = breaks / totals
-        if p_break >= 0.60:
-            opp = 'Xỉu' if cur_val == 'Tài' else 'Tài'
-            conf = min(58 + int(p_break * 25), 76)
-            return opp, conf, 1.15
-        if p_break <= 0.40:
-            conf = min(58 + int((1 - p_break) * 25), 76)
-            return cur_val, conf, 1.15
-        return None, 0, 0
-
-    @classmethod
-    def _hu_momentum_boost(cls, valid):
-        if len(valid) < 8:
-            return None, 0, 0
-        last5 = valid[-5:]
-        if any(not v.get('total') for v in last5):
-            return None, 0, 0
-        results_5 = [v['result'] for v in last5]
-        points_5 = [v['total'] for v in last5]
-        t_count = sum(1 for x in results_5 if x == 'Tài')
-        point_slope = points_5[-1] - points_5[0]
-        if t_count >= 4 and point_slope <= -3:
-            return 'Xỉu', 64, 1.10
-        if t_count <= 1 and point_slope >= 3:
-            return 'Tài', 64, 1.10
-        if t_count == 5:
-            return 'Tài', 60, 0.95
-        if t_count == 0:
-            return 'Xỉu', 60, 0.95
-        return None, 0, 0
-
-    # ==================== CROSS GAME ====================
-    @classmethod
-    def _cross_game_signal(cls, valid_tx, valid_hu):
-        if not valid_hu or len(valid_hu) < 8:
-            return None, 0, 0
-        r_tx = [v['result'] for v in valid_tx] if valid_tx else []
-        r_hu = [v['result'] for v in valid_hu]
-        cyc_tx = cls._detect_cycle(r_tx, max_period=5, min_repeats=2) if len(r_tx) >= 10 else None
-        cyc_hu = cls._detect_cycle(r_hu, max_period=5, min_repeats=2) if len(r_hu) >= 10 else None
-        if cyc_tx and cyc_hu:
-            if cyc_tx['next'] == cyc_hu['next']:
-                return cyc_hu['next'], 72, 1.35
-            e_tx = _entropy(r_tx[-20:])
-            e_hu = _entropy(r_hu[-20:])
-            if e_hu < e_tx - 0.15:
-                return cyc_hu['next'], 62, 1.10
-            elif e_tx < e_hu - 0.15:
-                return cyc_tx['next'], 62, 1.10
-        if len(r_hu) >= 10:
-            hu_last5 = r_hu[-5:]
-            t5 = sum(1 for x in hu_last5 if x == 'Tài') / 5
-            hu_tail_len, hu_tail_val = cls._tail_run(r_hu)
-            if t5 >= 0.8 and hu_tail_len <= 3:
-                return 'Tài', 60, 1.05
-            if t5 <= 0.2 and hu_tail_len <= 3:
-                return 'Xỉu', 60, 1.05
-            if hu_tail_len >= 5:
-                opp = 'Xỉu' if hu_tail_val == 'Tài' else 'Tài'
-                return opp, 58, 0.95
         return None, 0, 0
 
     # ==================== ORIGINAL ====================
@@ -1401,9 +1389,9 @@ class MultiStrategyPredictor:
         for i in range(start, len(valid) - 1):
             history = valid[:i]
             actual = valid[i]['result']
-            for fname, fn in cls._strategy_list(include_cross=False, include_hu_specific=False):
+            for fname, fn in cls._strategy_list():
                 try:
-                    p, c, w = fn(history, None)
+                    p, c, w = fn(history)
                     if p is not None:
                         cls._update_track(fname, p, actual)
                 except Exception:
@@ -1434,136 +1422,131 @@ class MultiStrategyPredictor:
 
     @staticmethod
     def _calibrate_confidence(raw_conf, log=None):
+        """V8.0: Calibration 2 tầng."""
         if log is None:
             log = PREDICTION_LOG
         evaluated = [e for e in log.values() if e.get('actual') is not None]
         if len(evaluated) < 20:
             return raw_conf
-        recent = sorted(
+
+        # Tầng 1: 30 gần nhất
+        recent30 = sorted(
             [(p, e) for p, e in log.items() if e.get('actual') is not None],
             reverse=True
         )[:30]
-        if not recent:
+        if not recent30:
             return raw_conf
-        acc = sum(1 for _, e in recent if e.get('correct')) / len(recent)
-        if acc < 0.45:
-            return max(50, raw_conf - 10)
-        if acc < 0.50:
-            return max(50, raw_conf - 5)
-        if acc > 0.65:
-            return min(88, raw_conf + 3)
+        acc30 = sum(1 for _, e in recent30 if e.get('correct')) / len(recent30)
+
+        # Tầng 2: 100 gần nhất (dài hạn)
+        recent100 = sorted(
+            [(p, e) for p, e in log.items() if e.get('actual') is not None],
+            reverse=True
+        )[:100]
+        acc100 = sum(1 for _, e in recent100 if e.get('correct')) / len(recent100) if recent100 else acc30
+
+        # Blend: 60% ngắn hạn + 40% dài hạn
+        acc_blend = acc30 * 0.6 + acc100 * 0.4
+
+        if acc_blend < 0.45:
+            return max(50, raw_conf - 12)
+        if acc_blend < 0.50:
+            return max(50, raw_conf - 6)
+        if acc_blend > 0.68:
+            return min(88, raw_conf + 4)
+        if acc_blend > 0.60:
+            return min(88, raw_conf + 2)
         return raw_conf
 
     # ==================== STRATEGY LIST ====================
     @classmethod
-    def _strategy_list(cls, include_cross=False, include_hu_specific=False):
-        base = [
-            ('markov3',      lambda v, hu: cls._markov_order3(v)),
-            ('markov2',      lambda v, hu: cls._markov_order2(v)),
-            ('markov1',      lambda v, hu: cls._markov_order1(v)),
-            ('streak',       lambda v, hu: cls._streak_break(v)),
-            ('pattern',      lambda v, hu: cls._pattern_match(v)),
-            ('weighted',     lambda v, hu: cls._weighted_freq(v)),
-            ('dice',         lambda v, hu: cls._dice_bias(v)),
-            ('alternation',  lambda v, hu: cls._alternation(v)),
-            ('momentum',     lambda v, hu: cls._momentum(v)),
-            ('recency',      lambda v, hu: cls._recency_streak(v)),
-            ('invert',       lambda v, hu: cls._invert_cau(v)),
-            ('trend',        lambda v, hu: cls._trend(v)),
-            ('bias_run',     lambda v, hu: cls._bias_run(v)),
-            ('follow',       lambda v, hu: cls._follow_trend(v)),
-            ('exhaust',      lambda v, hu: cls._exhaustion(v)),
-            ('dominance',    lambda v, hu: cls._dominance_flip(v)),
-            ('cycle_1_1',    lambda v, hu: cls._cycle_signal([x['result'] for x in v], [1, 1])),
-            ('cycle_2_2',    lambda v, hu: cls._cycle_signal([x['result'] for x in v], [2, 2])),
-            ('cycle_3_3',    lambda v, hu: cls._cycle_signal([x['result'] for x in v], [3, 3])),
-            ('cycle_1_2',    lambda v, hu: cls._cycle_signal([x['result'] for x in v], [1, 2])),
-            ('cycle_2_1',    lambda v, hu: cls._cycle_signal([x['result'] for x in v], [2, 1])),
-            ('cycle_1_3',    lambda v, hu: cls._cycle_signal([x['result'] for x in v], [1, 3])),
-            ('cycle_3_1',    lambda v, hu: cls._cycle_signal([x['result'] for x in v], [3, 1])),
-            ('cycle_2_3',    lambda v, hu: cls._cycle_signal([x['result'] for x in v], [2, 3])),
-            ('cycle_3_2',    lambda v, hu: cls._cycle_signal([x['result'] for x in v], [3, 2])),
-            ('cycle_123',    lambda v, hu: cls._cycle_signal([x['result'] for x in v], [1, 2, 3])),
-            ('cycle_321',    lambda v, hu: cls._cycle_signal([x['result'] for x in v], [3, 2, 1])),
-            ('cycle_346',    lambda v, hu: cls._cycle_signal([x['result'] for x in v], [3, 4, 6])),
-            ('cycle_112',    lambda v, hu: cls._cycle_signal([x['result'] for x in v], [1, 1, 2])),
-            ('cycle_212',    lambda v, hu: cls._cycle_signal([x['result'] for x in v], [2, 1, 2])),
-            ('cycle_122',    lambda v, hu: cls._cycle_signal([x['result'] for x in v], [1, 2, 2])),
-            ('cycle_221',    lambda v, hu: cls._cycle_signal([x['result'] for x in v], [2, 2, 1])),
-            ('cycle_1234',   lambda v, hu: cls._cycle_signal([x['result'] for x in v], [1, 2, 3, 4])),
-            ('cycle_2341',   lambda v, hu: cls._cycle_signal([x['result'] for x in v], [2, 3, 4, 1])),
-            ('cycle_3456',   lambda v, hu: cls._cycle_signal([x['result'] for x in v], [3, 4, 5, 6])),
-            ('cycle_4_4',    lambda v, hu: cls._cycle_signal([x['result'] for x in v], [4, 4])),
-            ('auto_cycle',   lambda v, hu: cls._auto_cycle_signal([x['result'] for x in v])),
-            ('pattern_sim',  lambda v, hu: cls._pattern_similarity([x['result'] for x in v])),
-            ('regime',       lambda v, hu: cls._regime_signal(v)),
-            ('flip_break',   lambda v, hu: cls._flip_break(v)),
-            ('run_break',    lambda v, hu: cls._run_break(v)),
-            ('ngram_2',      lambda v, hu: cls._ngram_signal([x['result'] for x in v], 2)),
-            ('ngram_3',      lambda v, hu: cls._ngram_signal([x['result'] for x in v], 3)),
-            ('ngram_4',      lambda v, hu: cls._ngram_signal([x['result'] for x in v], 4)),
-            ('ngram_5',      lambda v, hu: cls._ngram_signal([x['result'] for x in v], 5)),
-            ('mirror_pattern',  lambda v, hu: cls._mirror_pattern([x['result'] for x in v])),
-            ('reverse_trend',   lambda v, hu: cls._reverse_trend(v)),
-            ('palindrome_check', lambda v, hu: cls._palindrome_check([x['result'] for x in v])),
-            ('bayes_recent',      lambda v, hu: cls._bayes_recent(v)),
-            ('chi_square',        lambda v, hu: cls._chi_square(v)),
-            ('runs_prediction',   lambda v, hu: cls._runs_prediction(v)),
-            ('transition_matrix', lambda v, hu: cls._transition_matrix(v)),
-            ('double_break',      lambda v, hu: cls._cycle_signal([x['result'] for x in v], [2, 2])),
-            ('signal_consensus',  lambda v, hu: cls._signal_consensus(v)),
-            ('signal_dissent',    lambda v, hu: cls._signal_dissent(v)),
-            ('entropy_adaptive',  lambda v, hu: cls._entropy_adaptive(v)),
-            ('streak_maturity',   lambda v, hu: cls._streak_maturity(v)),
-            ('time_pattern',      lambda v, hu: cls._time_pattern(v)),
-            ('volatility',        lambda v, hu: cls._volatility(v)),
-            ('cusum',             lambda v, hu: cls._cusum(v)),
-            ('kelly_optimal',     lambda v, hu: cls._kelly_optimal(v)),
-            ('multi_window',      lambda v, hu: cls._multi_window(v)),
-            ('rsi_signal',        lambda v, hu: cls._rsi_signal(v)),
-            ('fibonacci_break',   lambda v, hu: cls._fibonacci_break(v)),
-            ('zscore_extreme',    lambda v, hu: cls._zscore_extreme(v)),
-            ('harmonic_pattern',  lambda v, hu: cls._harmonic_pattern([x['result'] for x in v])),
-            ('wavelet_trend',     lambda v, hu: cls._wavelet_trend(v)),
-            ('seasonal_cycle',    lambda v, hu: cls._seasonal_cycle([x['result'] for x in v])),
-            ('markov_weighted',   lambda v, hu: cls._markov_weighted(v)),
-            ('ensemble_boost',    lambda v, hu: cls._ensemble_boost(v)),
-            ('decision_tree',     lambda v, hu: cls._decision_tree(v)),
+    def _strategy_list(cls):
+        return [
+            ('markov3',      cls._markov_order3),
+            ('markov2',      cls._markov_order2),
+            ('markov1',      cls._markov_order1),
+            ('streak',       cls._streak_break),
+            ('pattern',      cls._pattern_match),
+            ('weighted',     cls._weighted_freq),
+            ('dice',         cls._dice_bias),
+            ('alternation',  cls._alternation),
+            ('momentum',     cls._momentum),
+            ('recency',      cls._recency_streak),
+            ('invert',       cls._invert_cau),
+            ('trend',        cls._trend),
+            ('bias_run',     cls._bias_run),
+            ('follow',       cls._follow_trend),
+            ('exhaust',      cls._exhaustion),
+            ('dominance',    cls._dominance_flip),
+            ('cycle_1_1',    lambda v: cls._cycle_signal([x['result'] for x in v], [1, 1])),
+            ('cycle_2_2',    lambda v: cls._cycle_signal([x['result'] for x in v], [2, 2])),
+            ('cycle_3_3',    lambda v: cls._cycle_signal([x['result'] for x in v], [3, 3])),
+            ('cycle_1_2',    lambda v: cls._cycle_signal([x['result'] for x in v], [1, 2])),
+            ('cycle_2_1',    lambda v: cls._cycle_signal([x['result'] for x in v], [2, 1])),
+            ('cycle_1_3',    lambda v: cls._cycle_signal([x['result'] for x in v], [1, 3])),
+            ('cycle_3_1',    lambda v: cls._cycle_signal([x['result'] for x in v], [3, 1])),
+            ('cycle_2_3',    lambda v: cls._cycle_signal([x['result'] for x in v], [2, 3])),
+            ('cycle_3_2',    lambda v: cls._cycle_signal([x['result'] for x in v], [3, 2])),
+            ('cycle_123',    lambda v: cls._cycle_signal([x['result'] for x in v], [1, 2, 3])),
+            ('cycle_321',    lambda v: cls._cycle_signal([x['result'] for x in v], [3, 2, 1])),
+            ('cycle_346',    lambda v: cls._cycle_signal([x['result'] for x in v], [3, 4, 6])),
+            ('cycle_112',    lambda v: cls._cycle_signal([x['result'] for x in v], [1, 1, 2])),
+            ('cycle_212',    lambda v: cls._cycle_signal([x['result'] for x in v], [2, 1, 2])),
+            ('cycle_122',    lambda v: cls._cycle_signal([x['result'] for x in v], [1, 2, 2])),
+            ('cycle_221',    lambda v: cls._cycle_signal([x['result'] for x in v], [2, 2, 1])),
+            ('cycle_1234',   lambda v: cls._cycle_signal([x['result'] for x in v], [1, 2, 3, 4])),
+            ('cycle_2341',   lambda v: cls._cycle_signal([x['result'] for x in v], [2, 3, 4, 1])),
+            ('cycle_3456',   lambda v: cls._cycle_signal([x['result'] for x in v], [3, 4, 5, 6])),
+            ('cycle_4_4',    lambda v: cls._cycle_signal([x['result'] for x in v], [4, 4])),
+            ('auto_cycle',   lambda v: cls._auto_cycle_signal([x['result'] for x in v])),
+            ('pattern_sim',  lambda v: cls._pattern_similarity([x['result'] for x in v])),
+            ('regime',       cls._regime_signal),
+            ('flip_break',   cls._flip_break),
+            ('run_break',    cls._run_break),
+            ('ngram_2',      lambda v: cls._ngram_signal([x['result'] for x in v], 2)),
+            ('ngram_3',      lambda v: cls._ngram_signal([x['result'] for x in v], 3)),
+            ('ngram_4',      lambda v: cls._ngram_signal([x['result'] for x in v], 4)),
+            ('ngram_5',      lambda v: cls._ngram_signal([x['result'] for x in v], 5)),
+            ('mirror_pattern',  lambda v: cls._mirror_pattern([x['result'] for x in v])),
+            ('reverse_trend',   cls._reverse_trend),
+            ('palindrome_check', lambda v: cls._palindrome_check([x['result'] for x in v])),
+            ('bayes_recent',      cls._bayes_recent),
+            ('chi_square',        cls._chi_square),
+            ('runs_prediction',   cls._runs_prediction),
+            ('transition_matrix', cls._transition_matrix),
+            ('double_break',      lambda v: cls._cycle_signal([x['result'] for x in v], [2, 2])),
+            ('signal_consensus',  cls._signal_consensus),
+            ('signal_dissent',    cls._signal_dissent),
+            ('entropy_adaptive',  cls._entropy_adaptive),
+            ('streak_maturity',   cls._streak_maturity),
+            ('time_pattern',      cls._time_pattern),
+            ('volatility',        cls._volatility),
+            ('cusum',             cls._cusum),
+            ('kelly_optimal',     cls._kelly_optimal),
+            ('multi_window',      cls._multi_window),
+            ('rsi_signal',        cls._rsi_signal),
+            ('fibonacci_break',   cls._fibonacci_break),
+            ('zscore_extreme',    cls._zscore_extreme),
+            ('harmonic_pattern',  lambda v: cls._harmonic_pattern([x['result'] for x in v])),
+            ('wavelet_trend',     cls._wavelet_trend),
+            ('seasonal_cycle',    lambda v: cls._seasonal_cycle([x['result'] for x in v])),
+            ('markov_weighted',   cls._markov_weighted),
+            ('ensemble_boost',    cls._ensemble_boost),
+            ('decision_tree',     cls._decision_tree),
+            # V8.0 NEW
+            ('streak_aware',      cls._streak_aware),
+            ('tier2_boost',       cls._tier2_boost),
+            ('volatility_regime', cls._volatility_regime),
+            ('cascade_pattern',   cls._cascade_pattern),
         ]
-        if include_hu_specific:
-            base.extend([
-                ('hu_dice_pattern',   lambda v, hu: cls._hu_dice_pattern(v)),
-                ('hu_streak_predict', lambda v, hu: cls._hu_streak_predict(v)),
-                ('hu_momentum_boost', lambda v, hu: cls._hu_momentum_boost(v)),
-            ])
-        if include_cross:
-            base.append(('cross_game', lambda v, hu: cls._cross_game_signal(v, hu)))
-        return base
 
     # ==================== MAIN PREDICT ====================
     @classmethod
-    def predict(cls, valid, valid_hu=None, use_cross=False, log=None, is_hu=False):
+    def predict(cls, valid, log=None):
         if log is None:
             log = PREDICTION_LOG
-        if valid_hu is None:
-            valid_hu = []
-        if not use_cross:
-            valid_hu = []
 
         if not valid:
-            if use_cross and valid_hu and len(valid_hu) >= 3:
-                pred_hu = cls.predict(valid_hu, [], use_cross=False,
-                                      log=log, is_hu=is_hu)
-                return {
-                    'prediction': pred_hu['prediction'],
-                    'confidence': max(50, pred_hu['confidence'] - 10),
-                    'method': 'Fallback Hũ (cross)',
-                    'signals': pred_hu.get('signals', []),
-                    'top_signals': ['Fallback Hũ'],
-                    'signals_strength': pred_hu.get('signals_strength', []),
-                    'reason': 'Không có data → dùng Hũ',
-                    'flipped': False,
-                }
             seed = str(int(time.time()) // 60)
             return {
                 'prediction': cls._deterministic_choice(['Tài', 'Xỉu'], seed),
@@ -1589,16 +1572,6 @@ class MultiStrategyPredictor:
                 method = f'Bẻ {last}×{streak}'
                 reason = f'{streak} phiên {last}'
                 conf = min(60 + (streak - 3) * 3, 70)
-            if use_cross and valid_hu and len(valid_hu) >= 3:
-                hu_streak, hu_last = cls._tail_run([v['result'] for v in valid_hu])
-                if hu_last == last and hu_streak >= 2:
-                    return {
-                        'prediction': last, 'confidence': 62,
-                        'method': f'Đồng thuận Hũ {last}',
-                        'signals': [], 'top_signals': [f'Đồng thuận Hũ'],
-                        'signals_strength': [],
-                        'reason': f'2 bàn cùng {last}', 'flipped': False,
-                    }
             return {
                 'prediction': opp, 'confidence': conf,
                 'method': method, 'signals': [],
@@ -1612,10 +1585,9 @@ class MultiStrategyPredictor:
         signals = []
         total_weight = 0.0
 
-        for name, fn in cls._strategy_list(
-                include_cross=use_cross, include_hu_specific=is_hu):
+        for name, fn in cls._strategy_list():
             try:
-                p, conf, weight = fn(valid, valid_hu)
+                p, conf, weight = fn(valid)
             except Exception:
                 continue
             if p is None or weight == 0:
@@ -1726,14 +1698,14 @@ class MultiStrategyPredictor:
 # =====================================================================
 # DATA FETCHERS
 # =====================================================================
-def _fetch_endpoint(url):
+def fetch_sessions():
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
         'Accept': 'application/json',
     }
     for attempt in range(3):
         try:
-            r = requests.get(url, timeout=6, headers=headers)
+            r = requests.get(API_URL_MD5, timeout=6, headers=headers)
             if r.status_code == 200:
                 data = r.json()
                 if 'list' in data and data['list']:
@@ -1754,14 +1726,6 @@ def _fetch_endpoint(url):
     return [], False
 
 
-def fetch_sessions():
-    return _fetch_endpoint(API_URL_MD5)
-
-
-def fetch_hu_sessions():
-    return _fetch_endpoint(API_URL_HU)
-
-
 def _sync_history():
     raw_rows, success = fetch_sessions()
     if not success and not HISTORY_CACHE:
@@ -1774,20 +1738,6 @@ def _sync_history():
     valid = sorted(HISTORY_CACHE.values(), key=lambda x: x['phien'])
     _update_prediction_log(valid)
     return valid, True
-
-
-def _sync_hu_history():
-    raw_rows, success = fetch_hu_sessions()
-    if not success and not HU_HISTORY_CACHE:
-        return [], False
-    for row in raw_rows:
-        HU_HISTORY_CACHE[row['phien']] = row
-    if HU_RESET_ID > 0:
-        for k in [k for k in HU_HISTORY_CACHE if k < HU_RESET_ID]:
-            del HU_HISTORY_CACHE[k]
-    valid_hu = sorted(HU_HISTORY_CACHE.values(), key=lambda x: x['phien'])
-    _update_hu_log(valid_hu)
-    return valid_hu, True
 
 
 def _update_prediction_log(valid):
@@ -1809,8 +1759,7 @@ def _update_prediction_log(valid):
         history_before = [by_phien[p] for p in phien_list[:i]]
         if len(history_before) < 3:
             continue
-        pred = MultiStrategyPredictor.predict(
-            history_before, [], use_cross=False, log=PREDICTION_LOG, is_hu=False)
+        pred = MultiStrategyPredictor.predict(history_before, log=PREDICTION_LOG)
         actual = by_phien[phien]['result']
         PREDICTION_LOG[phien] = {
             'prediction': pred['prediction'],
@@ -1832,67 +1781,10 @@ def _update_prediction_log(valid):
         _save_log()
 
 
-def _update_hu_log(valid_hu):
-    if not valid_hu:
-        return
-    by_phien = {v['phien']: v for v in valid_hu}
-    phien_list = sorted(by_phien.keys())
-    for phien, entry in list(HU_PREDICTION_LOG.items()):
-        if entry.get('actual') is not None:
-            continue
-        if phien in by_phien:
-            actual = by_phien[phien]['result']
-            entry['actual'] = actual
-            entry['correct'] = (entry['prediction'] == actual)
-    changed = False
-    for i, phien in enumerate(phien_list):
-        if phien in HU_PREDICTION_LOG or phien <= HU_RESET_ID:
-            continue
-        history_before = [by_phien[p] for p in phien_list[:i]]
-        if len(history_before) < 3:
-            continue
-        pred = MultiStrategyPredictor.predict(
-            history_before, [], use_cross=False, log=HU_PREDICTION_LOG, is_hu=True)
-        actual = by_phien[phien]['result']
-        HU_PREDICTION_LOG[phien] = {
-            'prediction': pred['prediction'],
-            'confidence': pred['confidence'],
-            'method': pred['method'],
-            'actual': actual,
-            'correct': (pred['prediction'] == actual),
-            'logged_at': datetime.now().isoformat(),
-            'retroactive': True,
-            'flipped': pred.get('flipped', False),
-        }
-        changed = True
-    if len(HU_PREDICTION_LOG) > MAX_LOG_SIZE:
-        keys = sorted(HU_PREDICTION_LOG.keys())[:len(HU_PREDICTION_LOG) - MAX_LOG_SIZE]
-        for k in keys:
-            del HU_PREDICTION_LOG[k]
-        changed = True
-    if changed:
-        _save_log()
-
-
 def _log_prediction(phien, pred_result):
     if phien in PREDICTION_LOG:
         return
     PREDICTION_LOG[phien] = {
-        'prediction': pred_result['prediction'],
-        'confidence': pred_result['confidence'],
-        'method': pred_result['method'],
-        'actual': None, 'correct': None,
-        'logged_at': datetime.now().isoformat(),
-        'retroactive': False,
-        'flipped': pred_result.get('flipped', False),
-    }
-    _save_log()
-
-
-def _log_hu_prediction(phien, pred_result):
-    if phien in HU_PREDICTION_LOG:
-        return
-    HU_PREDICTION_LOG[phien] = {
         'prediction': pred_result['prediction'],
         'confidence': pred_result['confidence'],
         'method': pred_result['method'],
@@ -1926,39 +1818,27 @@ _load_log()
 
 
 # =====================================================================
-# HTML - V7.1 (Ẩn top tín hiệu + Hũ đúng/sai)
+# HTML - V8.0 (Single Panel MD5, pastel theme)
 # =====================================================================
 HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="vi">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>LE MINH Bon</title>
+<title>LE MINH MD5</title>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <style>
 :root{
-  --bg-1:#fdf2f8;
-  --bg-2:#f0f9ff;
-  --card:#ffffff;
-  --card-soft:#f8fafc;
-  --text:#1e293b;
-  --text-soft:#475569;
-  --muted:#94a3b8;
-  --border:#e2e8f0;
-  --border-pink:#fbcfe8;
-  --tai:#0284c7;
-  --tai-bg:#e0f2fe;
-  --xiu:#db2777;
-  --xiu-bg:#fce7f3;
-  --ok:#059669;
-  --ok-bg:#d1fae5;
-  --fail:#dc2626;
-  --fail-bg:#fee2e2;
-  --warn:#d97706;
-  --warn-bg:#fef3c7;
-  --hu:#9333ea;
-  --hu-bg:#f3e8ff;
+  --bg-1:#fdf2f8;--bg-2:#f0f9ff;
+  --card:#ffffff;--card-soft:#f8fafc;
+  --text:#1e293b;--text-soft:#475569;--muted:#94a3b8;
+  --border:#e2e8f0;--border-pink:#fbcfe8;
+  --tai:#0284c7;--tai-bg:#e0f2fe;
+  --xiu:#db2777;--xiu-bg:#fce7f3;
+  --ok:#059669;--ok-bg:#d1fae5;
+  --fail:#dc2626;--fail-bg:#fee2e2;
+  --warn:#d97706;--warn-bg:#fef3c7;
   --shadow-sm:0 1px 2px rgba(15,23,42,.04);
   --shadow:0 4px 12px rgba(15,23,42,.06);
   --shadow-lg:0 12px 32px rgba(219,39,119,.1);
@@ -1966,8 +1846,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 *{box-sizing:border-box;margin:0;padding:0;font-family:'Plus Jakarta Sans',sans-serif}
 body{
   background:linear-gradient(135deg,#fdf2f8 0%,#f0f9ff 50%,#fef3f9 100%);
-  background-attachment:fixed;
-  color:var(--text);min-height:100vh;padding-bottom:30px;font-size:13px;
+  background-attachment:fixed;color:var(--text);
+  min-height:100vh;padding-bottom:30px;font-size:13px;
 }
 body::before{
   content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
@@ -1991,7 +1871,12 @@ body::before{
 .logo span.ver{
   font-size:9px;background:linear-gradient(135deg,#ec4899,#a855f7);
   color:#fff;padding:3px 8px;border-radius:20px;font-weight:800;letter-spacing:.5px;
-  box-shadow:0 2px 6px rgba(168,85,247,.3)
+  box-shadow:0 2px 6px rgba(168,85,247,.3);
+}
+.logo .md5-badge{
+  font-size:9px;background:linear-gradient(135deg,#0ea5e9,#0284c7);
+  color:#fff;padding:3px 8px;border-radius:20px;font-weight:800;letter-spacing:.5px;
+  box-shadow:0 2px 6px rgba(2,132,199,.3);margin-left:4px;
 }
 .actions{display:flex;gap:8px;align-items:center}
 .clock{font-size:11px;color:var(--muted);font-weight:600;font-variant-numeric:tabular-nums}
@@ -2007,14 +1892,6 @@ body::before{
 @keyframes spin{to{transform:rotate(360deg)}}
 
 .wrap{max-width:780px;margin:0 auto;padding:12px;position:relative;z-index:1}
-
-.tabs{display:flex;gap:6px;margin-bottom:12px;background:#fff;padding:5px;border-radius:11px;border:1px solid var(--border);box-shadow:var(--shadow-sm)}
-.tab{flex:1;padding:10px;text-align:center;border-radius:8px;font-weight:700;font-size:12px;cursor:pointer;color:var(--muted);transition:.3s;position:relative;z-index:1}
-.tab.active{background:linear-gradient(135deg,#ec4899,#f472b6);color:#fff;box-shadow:0 4px 15px rgba(236,72,153,.35)}
-.tab.hu.active{background:linear-gradient(135deg,#9333ea,#ec4899);box-shadow:0 4px 15px rgba(147,51,234,.35)}
-
-.panel{display:none}.panel.active{display:block;animation:fadeIn .3s}
-@keyframes fadeIn{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
 
 .pred-box{
   background:linear-gradient(135deg,#ffffff,#fdf2f8);
@@ -2044,18 +1921,6 @@ body::before{
   border-radius:3px;transition:width 1s ease;
   box-shadow:0 0 10px rgba(236,72,153,.4);
 }
-.hu-value{font-size:34px;font-weight:800;line-height:1;color:var(--hu);text-shadow:0 2px 12px rgba(147,51,234,.2);position:relative;z-index:1;letter-spacing:-1px}
-.hu-pred-box{
-  background:linear-gradient(135deg,#fdf2f8,#f3e8ff);
-  border:1px solid #e9d5ff;border-radius:16px;padding:18px;
-  margin-bottom:12px;position:relative;overflow:hidden;
-  box-shadow:0 12px 32px rgba(147,51,234,.1);
-}
-.hu-pred-box::before{
-  content:'';position:absolute;inset:0;
-  background:linear-gradient(45deg,transparent 30%,rgba(233,213,255,.5) 50%,transparent 70%);
-  animation:sweep 4s linear infinite;
-}
 
 .scorebar{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px}
 .sc{
@@ -2074,7 +1939,7 @@ body::before{
 .sc-v.pulse{animation:pulse .4s}
 @keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.15)}}
 
-.tbl{background:#fff;border:1px solid var(--border);border-radius:14px;overflow:hidden;max-height:60vh;overflow-y:auto;box-shadow:var(--shadow)}
+.tbl{background:#fff;border:1px solid var(--border);border-radius:14px;overflow:hidden;max-height:65vh;overflow-y:auto;box-shadow:var(--shadow)}
 table{width:100%;border-collapse:separate;border-spacing:0}
 th{
   background:linear-gradient(135deg,#fdf2f8,#f0f9ff);
@@ -2089,7 +1954,6 @@ tr:hover td{background:#fdf2f8}
   0%,100%{box-shadow:inset 0 0 20px rgba(236,72,153,.06)}
   50%{box-shadow:inset 0 0 25px rgba(236,72,153,.18)}
 }
-.row-next.hu{background:linear-gradient(90deg,#f3e8ff,#fff);border-left:3px solid var(--hu)}
 .badge{display:inline-block;padding:3px 10px;border-radius:14px;font-size:10px;font-weight:800;min-width:52px;text-align:center}
 .b-tai{background:var(--tai-bg);color:var(--tai);border:1px solid #bae6fd}
 .b-xiu{background:var(--xiu-bg);color:var(--xiu);border:1px solid var(--border-pink)}
@@ -2102,7 +1966,6 @@ tr:hover td{background:#fdf2f8}
 .dice{font-size:10px;color:var(--muted);display:block;margin-top:2px;font-variant-numeric:tabular-nums}
 .pred-mini{font-size:11px;font-weight:800}
 .pred-mini.tai{color:var(--tai)}.pred-mini.xiu{color:var(--xiu)}
-.hu-pred{font-size:11px;font-weight:800;color:var(--hu)}
 .loading{text-align:center;padding:30px;color:var(--xiu);font-weight:600}
 
 @media(max-width:520px){
@@ -2110,14 +1973,17 @@ tr:hover td{background:#fdf2f8}
   .clock{display:none}
   .badge{min-width:44px;font-size:9px}
   .sc-v{font-size:17px}
-  .tab{font-size:11px;padding:8px}
-  .pred-value,.hu-value{font-size:26px}
+  .pred-value{font-size:26px}
 }
 </style>
 </head>
 <body>
 <div class="header">
-    <div class="logo"><span class="logo-text">LE MINH</span> <span class="ver">Bon</span></div>
+    <div class="logo">
+        <span class="logo-text">LE MINH</span>
+        <span class="ver">V8.0</span>
+        <span class="md5-badge">MD5</span>
+    </div>
     <div class="actions">
         <div class="clock" id="clock">--:--:--</div>
         <button class="btn" onclick="manualRefresh(this)">↻</button>
@@ -2125,96 +1991,49 @@ tr:hover td{background:#fdf2f8}
     </div>
 </div>
 <div class="wrap">
-    <div class="tabs">
-        <div class="tab active" data-tab="tx" onclick="switchTab('tx')">MD5</div>
-        <div class="tab hu" data-tab="hu" onclick="switchTab('hu')"> HŨ</div>
-    </div>
-    
-    <div class="panel active" id="panel-tx">
-        <div class="pred-box">
-            <div class="pred-row">
-                <div>
-                    <div class="pred-label">Dự đoán phiên tiếp theo</div>
-                    <div class="pred-value" id="tx-pred-value">Đang tải...</div>
-                </div>
-                <div class="pred-conf-badge" id="tx-conf-badge">--%</div>
+    <div class="pred-box">
+        <div class="pred-row">
+            <div>
+                <div class="pred-label">Dự đoán phiên tiếp theo</div>
+                <div class="pred-value" id="pred-value">Đang tải...</div>
             </div>
-            <div class="conf-bar">
-                <div class="conf-bar-fill" id="tx-conf-bar" style="width:0%"></div>
-            </div>
+            <div class="pred-conf-badge" id="conf-badge">--%</div>
         </div>
-        
-        <div class="scorebar">
-            <div class="sc"><div class="sc-l">✓ Đúng</div><div class="sc-v ok" id="sc-correct">0</div></div>
-            <div class="sc"><div class="sc-l">✗ Sai</div><div class="sc-v fail" id="sc-wrong">0</div></div>
-            <div class="sc"><div class="sc-l">⏳ Chờ</div><div class="sc-v warn" id="sc-pending">0</div></div>
-        </div>
-        
-        <div class="tbl">
-            <table>
-                <thead><tr><th>Phiên</th><th>Dự đoán</th><th>Kết quả</th><th>Đúng/Sai</th></tr></thead>
-                <tbody id="tbody-tx"><tr><td colspan="4" class="loading">Đang kết nối...</td></tr></tbody>
-            </table>
+        <div class="conf-bar">
+            <div class="conf-bar-fill" id="conf-bar" style="width:0%"></div>
         </div>
     </div>
     
-    <div class="panel" id="panel-hu">
-        <div class="hu-pred-box">
-            <div class="pred-row">
-                <div>
-                    <div class="pred-label">Hũ dự đoán phiên tiếp theo</div>
-                    <div class="hu-value" id="hu-pred-value">Đang tải...</div>
-                </div>
-                <div class="pred-conf-badge" id="hu-conf-badge" style="background:linear-gradient(135deg,#f3e8ff,#e9d5ff);border-color:#e9d5ff;color:var(--hu)">--%</div>
-            </div>
-            <div class="conf-bar">
-                <div class="conf-bar-fill" id="hu-conf-bar" style="width:0%;background:linear-gradient(90deg,#9333ea,#ec4899)"></div>
-            </div>
-        </div>
-        
-        <div class="scorebar">
-            <div class="sc"><div class="sc-l">✓ Đúng</div><div class="sc-v ok" id="hu-sc-correct">0</div></div>
-            <div class="sc"><div class="sc-l">✗ Sai</div><div class="sc-v fail" id="hu-sc-wrong">0</div></div>
-            <div class="sc"><div class="sc-l">⏳ Chờ</div><div class="sc-v warn" id="hu-sc-pending">0</div></div>
-        </div>
-        
-        <div class="tbl">
-            <table>
-                <thead><tr><th>Phiên</th><th>Dự đoán</th><th>Kết quả</th><th>Đúng/Sai</th><th>Điểm</th></tr></thead>
-                <tbody id="tbody-hu"><tr><td colspan="5" class="loading">Đang kết nối...</td></tr></tbody>
-            </table>
-        </div>
+    <div class="scorebar">
+        <div class="sc"><div class="sc-l">✓ Đúng</div><div class="sc-v ok" id="sc-correct">0</div></div>
+        <div class="sc"><div class="sc-l">✗ Sai</div><div class="sc-v fail" id="sc-wrong">0</div></div>
+        <div class="sc"><div class="sc-l">⏳ Chờ</div><div class="sc-v warn" id="sc-pending">0</div></div>
+    </div>
+    
+    <div class="tbl">
+        <table>
+            <thead><tr><th>Phiên</th><th>Dự đoán</th><th>Kết quả</th><th>Đúng/Sai</th></tr></thead>
+            <tbody id="tbody"><tr><td colspan="4" class="loading">Đang kết nối...</td></tr></tbody>
+        </table>
     </div>
 </div>
 <script>
 let isResetting=false;
 
-function switchTab(t){
-    document.querySelectorAll('.tab').forEach(el=>el.classList.toggle('active',el.dataset.tab===t));
-    document.querySelectorAll('.panel').forEach(el=>el.classList.remove('active'));
-    document.getElementById('panel-'+t).classList.add('active');
-}
-
 function manualRefresh(btn){
     btn.classList.add('spin');
     setTimeout(()=>btn.classList.remove('spin'),500);
-    fetchAll();
+    fetchData();
 }
 
-async function fetchAll(){
+async function fetchData(){
     if(isResetting)return;
     document.getElementById('clock').innerText=new Date().toLocaleTimeString('vi-VN');
     try{
         const r=await fetch('/api/history',{cache:'no-store'});
         const d=await r.json();
         renderScore(d.ai_stats||{});
-        renderTxPred(d.prediction,d.rows||[]);
-    }catch(e){console.error(e);}
-    try{
-        const r=await fetch('/api/hu_history',{cache:'no-store'});
-        const d=await r.json();
-        renderHuScore(d.ai_stats||{});
-        renderHuPred(d);
+        renderPred(d.prediction,d.rows||[]);
     }catch(e){console.error(e);}
 }
 
@@ -2229,21 +2048,10 @@ function renderScore(ai){
     cv.innerText=newC;wv.innerText=newW;pv.innerText=newP;
 }
 
-function renderHuScore(ai){
-    const cv=document.getElementById('hu-sc-correct');
-    const wv=document.getElementById('hu-sc-wrong');
-    const pv=document.getElementById('hu-sc-pending');
-    const newC=ai.correct||0, newW=ai.wrong||0, newP=ai.pending||0;
-    if(parseInt(cv.innerText)!==newC && cv.innerText!=='0'){
-        cv.classList.add('pulse');setTimeout(()=>cv.classList.remove('pulse'),400);
-    }
-    cv.innerText=newC;wv.innerText=newW;pv.innerText=newP;
-}
-
-function renderTxPred(pred, rows){
-    const pv=document.getElementById('tx-pred-value');
-    const cb=document.getElementById('tx-conf-badge');
-    const bar=document.getElementById('tx-conf-bar');
+function renderPred(pred, rows){
+    const pv=document.getElementById('pred-value');
+    const cb=document.getElementById('conf-badge');
+    const bar=document.getElementById('conf-bar');
     if(!pred){
         pv.innerText='—';pv.className='pred-value';
         cb.innerText='--%';bar.style.width='0%';
@@ -2254,11 +2062,11 @@ function renderTxPred(pred, rows){
         cb.innerText=c+'%';
         bar.style.width=c+'%';
     }
-    renderTableTX(rows);
+    renderTable(rows);
 }
 
-function renderTableTX(rows){
-    const tb=document.getElementById('tbody-tx');
+function renderTable(rows){
+    const tb=document.getElementById('tbody');
     if(!rows.length){tb.innerHTML='<tr><td colspan="4" class="loading">Chưa có dữ liệu.</td></tr>';return;}
     let html='';
     rows.forEach(row=>{
@@ -2282,43 +2090,6 @@ function renderTableTX(rows){
     tb.innerHTML=html;
 }
 
-function renderHuPred(d){
-    const pred=d.prediction||{};
-    const pv=document.getElementById('hu-pred-value');
-    const cb=document.getElementById('hu-conf-badge');
-    const bar=document.getElementById('hu-conf-bar');
-    pv.innerText=pred.prediction||'—';
-    cb.innerText=(pred.confidence||0)+'%';
-    bar.style.width=(pred.confidence||0)+'%';
-    renderTableHu(d.rows||[]);
-}
-
-function renderTableHu(rows){
-    const tb=document.getElementById('tbody-hu');
-    if(!rows.length){tb.innerHTML='<tr><td colspan="5" class="loading">Chưa có dữ liệu Hũ.</td></tr>';return;}
-    let html='';
-    rows.forEach(row=>{
-        const trCls=row.is_next?'class="row-next hu"':'';
-        let predCell='<span class="badge b-none">—</span>';
-        if(row.ai_prediction){
-            predCell=`<span class="hu-pred">${row.ai_prediction}</span><br><span style="font-size:9px;color:var(--muted)">${row.ai_confidence||0}%</span>`;
-        }
-        let resBadge='<span class="badge b-none">—</span>';
-        if(row.result==='Tài')resBadge='<span class="badge b-tai">TÀI</span>';
-        if(row.result==='Xỉu')resBadge='<span class="badge b-xiu">XỈU</span>';
-        let dice='';
-        if(row.dice&&row.dice!=='? + ? + ?')dice=`<span class="dice">${row.dice}</span>`;
-        let evalCell='<span class="badge b-none">—</span>';
-        if(row.ai_correct===true)evalCell='<span class="badge b-ok">✓ ĐÚNG</span>';
-        else if(row.ai_correct===false)evalCell='<span class="badge b-fail">✗ SAI</span>';
-        else if(row.ai_prediction&&row.ai_correct===null)evalCell='<span class="badge b-pending">⏳ CHỜ</span>';
-        let point='';
-        if(row.total!==null&&row.total!==undefined)point=`<span style="font-weight:800;color:var(--hu)">${row.total}</span>`;
-        html+=`<tr ${trCls}><td>#${row.phien}${row.is_next?'<br><span style="font-size:9px;color:var(--hu)">NEXT</span>':''}</td><td>${predCell}</td><td>${resBadge}${dice}</td><td>${evalCell}</td><td>${point}</td></tr>`;
-    });
-    tb.innerHTML=html;
-}
-
 async function confirmReset(){
     Swal.fire({
         title:'Reset?',text:'Xoá toàn bộ cache và log?',icon:'warning',
@@ -2333,7 +2104,7 @@ async function confirmReset(){
             const d=await res.json();
             isResetting=false;
             if(d.status==='success'){
-                fetchAll();
+                fetchData();
                 Swal.fire({title:'OK!',text:'Đã reset.',icon:'success',background:'#fff',color:'#1e293b',confirmButtonColor:'#ec4899'});
             } else throw new Error(d.message||'Lỗi');
         }catch(e){
@@ -2343,8 +2114,8 @@ async function confirmReset(){
     });
 }
 
-fetchAll();
-setInterval(fetchAll,5000);
+fetchData();
+setInterval(fetchData,5000);
 </script>
 </body>
 </html>"""
@@ -2368,8 +2139,7 @@ def history():
             return jsonify({'rows': [], 'stats': {'total': 0, 'tai': 0, 'xiu': 0},
                             'ai_stats': _log_stats(), 'prediction': None})
         next_phien = valid[-1]['phien'] + 1
-        pred = MultiStrategyPredictor.predict(
-            valid, [], use_cross=False, log=PREDICTION_LOG, is_hu=False)
+        pred = MultiStrategyPredictor.predict(valid, log=PREDICTION_LOG)
         _log_prediction(next_phien, pred)
         stats = _honest_stats(valid)
         ai_stats = _log_stats()
@@ -2404,52 +2174,6 @@ def history():
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/api/hu_history')
-def hu_history():
-    try:
-        valid_hu, success = _sync_hu_history()
-        if not success:
-            return jsonify({'error': 'Không thể kết nối Hũ API'}), 500
-        if not valid_hu:
-            return jsonify({'rows': [], 'prediction': None, 'next_phien': None,
-                            'ai_stats': _log_stats(HU_PREDICTION_LOG)})
-        next_phien = valid_hu[-1]['phien'] + 1
-        pred = MultiStrategyPredictor.predict(
-            valid_hu, [], use_cross=False, log=HU_PREDICTION_LOG, is_hu=True)
-        _log_hu_prediction(next_phien, pred)
-        out = [{
-            'phien': next_phien, 'is_next': True, 'result': 'Chờ...',
-            'dice': '? + ? + ?', 'total': None,
-            'ai_prediction': pred['prediction'],
-            'ai_confidence': pred['confidence'],
-            'ai_correct': None,
-        }]
-        for v in reversed(valid_hu[-60:]):
-            if v['phien'] <= HU_RESET_ID:
-                continue
-            log = HU_PREDICTION_LOG.get(v['phien'])
-            out.append({
-                'phien': v['phien'], 'is_next': False,
-                'result': v['result'], 'dice': v['dice'], 'total': v['total'],
-                'ai_prediction': log['prediction'] if log else None,
-                'ai_confidence': log['confidence'] if log else None,
-                'ai_correct': log['correct'] if log else None,
-            })
-        return jsonify({
-            'rows': out, 'next_phien': next_phien,
-            'prediction': {
-                'prediction': pred['prediction'],
-                'confidence': pred['confidence'],
-                'method': pred['method'],
-            },
-            'stats': _honest_stats(valid_hu),
-            'ai_stats': _log_stats(HU_PREDICTION_LOG),
-        })
-    except Exception as e:
-        traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
-
-
 @app.route('/lc79md5')
 def lc79md5():
     try:
@@ -2457,17 +2181,16 @@ def lc79md5():
         if not success:
             return jsonify({'error': 'Không thể kết nối MD5 API'}), 500
         if not valid:
-            return jsonify({'Id': 'LE MINH V7.1 MD5', 'Phien': None,
+            return jsonify({'Id': 'LE MINH V8.0 MD5', 'Phien': None,
                             'Du_doan': None, 'message': 'Chưa có dữ liệu'})
         last = valid[-1]
         next_phien = last['phien'] + 1
-        pred = MultiStrategyPredictor.predict(
-            valid, [], use_cross=False, log=PREDICTION_LOG, is_hu=False)
+        pred = MultiStrategyPredictor.predict(valid, log=PREDICTION_LOG)
         _log_prediction(next_phien, pred)
         stats = _honest_stats(valid)
         ai_stats = _log_stats(PREDICTION_LOG)
         return jsonify({
-            'Id': 'LE MINH V7.1 MD5',
+            'Id': 'LE MINH V8.0 MD5',
             'Phien': str(next_phien),
             'Ket_qua_truoc': last['result'].lower(),
             'Xuc_xac_truoc': last['dice'],
@@ -2494,68 +2217,22 @@ def lc79md5():
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/lc79hu')
-def lc79hu():
-    try:
-        valid_hu, success = _sync_hu_history()
-        if not success:
-            return jsonify({'error': 'Không thể kết nối Hũ API'}), 500
-        if not valid_hu:
-            return jsonify({'Id': 'LE MINH V7.1 HU', 'Phien': None,
-                            'Du_doan': None, 'message': 'Chưa có dữ liệu Hũ'})
-        last_hu = valid_hu[-1]
-        next_phien = last_hu['phien'] + 1
-        pred = MultiStrategyPredictor.predict(
-            valid_hu, [], use_cross=False, log=HU_PREDICTION_LOG, is_hu=True)
-        _log_hu_prediction(next_phien, pred)
-        stats = _honest_stats(valid_hu)
-        ai_stats = _log_stats(HU_PREDICTION_LOG)
-        return jsonify({
-            'Id': 'LE MINH V7.1 HU',
-            'Phien': str(next_phien),
-            'Ket_qua_truoc': last_hu['result'].lower(),
-            'Xuc_xac_truoc': last_hu['dice'],
-            'Diem_truoc': last_hu['total'],
-            'Du_doan': pred['prediction'],
-            'Do_tin_cay': f"{pred['confidence']}%",
-            'Phuong_phap': pred['method'],
-            'Tin_hieu_chinh': pred.get('top_signals', []),
-            'Ly_do': pred['reason'],
-            'Da_dao': pred.get('flipped', False),
-            'So_tin_hieu': len(pred['signals']),
-            'Top_manh': pred.get('signals_strength', [])[:5],
-            'Tong_phien': stats['total'],
-            'So_Tai': stats['tai'],
-            'So_Xiu': stats['xiu'],
-            'AI_dung': ai_stats['correct'],
-            'AI_sai': ai_stats['wrong'],
-            'AI_cho': ai_stats['pending'],
-            'Ti_le_AI': round(
-                ai_stats['correct'] / max(ai_stats['evaluated'], 1) * 100, 1),
-        })
-    except Exception as e:
-        traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
-
-
 @app.route('/lc79')
 def lc79():
     try:
         valid, success = _sync_history()
-        valid_hu, _ = _sync_hu_history()
         if not success:
             return jsonify({'error': 'Không thể kết nối API'}), 500
         if not valid:
-            return jsonify({'Id': 'LE MINH V7.1', 'Phien': None, 'Du_doan': None})
+            return jsonify({'Id': 'LE MINH V8.0', 'Phien': None, 'Du_doan': None})
         last = valid[-1]
         next_phien = last['phien'] + 1
-        pred = MultiStrategyPredictor.predict(
-            valid, valid_hu, use_cross=True, log=PREDICTION_LOG, is_hu=False)
+        pred = MultiStrategyPredictor.predict(valid, log=PREDICTION_LOG)
         _log_prediction(next_phien, pred)
         stats = _honest_stats(valid)
         ai_stats = _log_stats(PREDICTION_LOG)
         return jsonify({
-            'Id': 'LE MINH V7.1 COMBINED',
+            'Id': 'LE MINH V8.0',
             'Phien': str(next_phien),
             'Ket_qua_truoc': last['result'].lower(),
             'Du_doan': pred['prediction'],
@@ -2574,10 +2251,6 @@ def lc79():
             'AI_cho': ai_stats['pending'],
             'Ti_le_AI': round(
                 ai_stats['correct'] / max(ai_stats['evaluated'], 1) * 100, 1),
-            'Hu_context': {
-                'total': len(valid_hu),
-                'last_result': valid_hu[-1]['result'] if valid_hu else None,
-            },
         })
     except Exception as e:
         traceback.print_exc()
@@ -2594,11 +2267,10 @@ def predict():
             return jsonify({'prediction': None, 'ai_stats': _log_stats()})
         last = valid[-1]
         next_phien = last['phien'] + 1
-        pred = MultiStrategyPredictor.predict(
-            valid, [], use_cross=False, log=PREDICTION_LOG, is_hu=False)
+        pred = MultiStrategyPredictor.predict(valid, log=PREDICTION_LOG)
         _log_prediction(next_phien, pred)
         return jsonify({
-            'version': 'V7.1',
+            'version': 'V8.0',
             'last_phien': last['phien'],
             'next_phien': next_phien,
             'last_result': last['result'],
@@ -2622,67 +2294,19 @@ def predict():
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/api/hu_predict')
-def hu_predict():
-    try:
-        valid_hu, success = _sync_hu_history()
-        if not success:
-            return jsonify({'error': 'Không thể kết nối Hũ API'}), 500
-        if not valid_hu:
-            return jsonify({'prediction': None})
-        last_hu = valid_hu[-1]
-        next_phien = last_hu['phien'] + 1
-        pred = MultiStrategyPredictor.predict(
-            valid_hu, [], use_cross=False, log=HU_PREDICTION_LOG, is_hu=True)
-        _log_hu_prediction(next_phien, pred)
-        return jsonify({
-            'version': 'V7.1', 'game': 'Hũ',
-            'last_phien': last_hu['phien'],
-            'next_phien': next_phien,
-            'last_result': last_hu['result'],
-            'last_dice': last_hu['dice'],
-            'last_total': last_hu['total'],
-            'prediction': pred['prediction'],
-            'confidence': pred['confidence'],
-            'method': pred['method'],
-            'top_signals': pred.get('top_signals', []),
-            'signals_strength': pred.get('signals_strength', []),
-            'reason': pred['reason'],
-            'signals': pred['signals'],
-            'signals_count': len(pred['signals']),
-            'flipped': pred.get('flipped', False),
-            'stats': _honest_stats(valid_hu),
-            'ai_stats': _log_stats(HU_PREDICTION_LOG),
-            'timestamp': datetime.now().isoformat(),
-        })
-    except Exception as e:
-        traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
-
-
 @app.route('/api/stats')
 def stats_only():
     try:
         valid, success = _sync_history()
-        valid_hu, _ = _sync_hu_history()
         if not success:
             return jsonify({'error': 'Không thể kết nối API'}), 500
         last = valid[-1] if valid else None
-        last_hu = valid_hu[-1] if valid_hu else None
         return jsonify({
-            'tx': {
-                'stats': _honest_stats(valid),
-                'last_result': last['result'] if last else None,
-                'last_phien': last['phien'] if last else None,
-            },
-            'hu': {
-                'stats': _honest_stats(valid_hu),
-                'last_result': last_hu['result'] if last_hu else None,
-                'last_phien': last_hu['phien'] if last_hu else None,
-                'last_total': last_hu['total'] if last_hu else None,
-            },
-            'ai_stats_tx': _log_stats(PREDICTION_LOG),
-            'ai_stats_hu': _log_stats(HU_PREDICTION_LOG),
+            'stats': _honest_stats(valid),
+            'ai_stats': _log_stats(),
+            'last_result': last['result'] if last else None,
+            'last_phien': last['phien'] if last else None,
+            'last_dice': last['dice'] if last else None,
             'timestamp': datetime.now().isoformat(),
         })
     except Exception as e:
@@ -2694,21 +2318,15 @@ def stats_only():
 def algo_info():
     try:
         valid, success = _sync_history()
-        valid_hu, _ = _sync_hu_history()
         if not success:
             return jsonify({'error': 'Không thể kết nối API'}), 500
         if not valid:
             return jsonify({'error': 'Chưa có dữ liệu'}), 400
-        pred = MultiStrategyPredictor.predict(
-            valid, [], use_cross=False, log=PREDICTION_LOG, is_hu=False)
+        pred = MultiStrategyPredictor.predict(valid, log=PREDICTION_LOG)
         results = [v['result'] for v in valid]
         cyc = MultiStrategyPredictor._detect_cycle(results, max_period=6, min_repeats=2)
-        cyc_hu = None
-        if valid_hu:
-            cyc_hu = MultiStrategyPredictor._detect_cycle(
-                [v['result'] for v in valid_hu], max_period=6, min_repeats=2)
         return jsonify({
-            'version': 'V7.1',
+            'version': 'V8.0',
             'prediction': pred['prediction'],
             'confidence': pred['confidence'],
             'method': pred['method'],
@@ -2723,11 +2341,7 @@ def algo_info():
             'detected_cycle': {
                 'period': cyc['period'], 'pattern': cyc['pattern'], 'next': cyc['next'],
             } if cyc else None,
-            'hu_detected_cycle': {
-                'period': cyc_hu['period'], 'pattern': cyc_hu['pattern'], 'next': cyc_hu['next'],
-            } if cyc_hu else None,
             'num_phien': len(valid),
-            'num_phien_hu': len(valid_hu),
         })
     except Exception as e:
         traceback.print_exc()
@@ -2738,26 +2352,14 @@ def algo_info():
 def prediction_log():
     try:
         _sync_history()
-        _sync_hu_history()
         items = sorted(PREDICTION_LOG.items(), key=lambda x: x[0], reverse=True)[:100]
-        hu_items = sorted(HU_PREDICTION_LOG.items(), key=lambda x: x[0], reverse=True)[:100]
         out = [{
             'phien': p, 'prediction': e['prediction'], 'confidence': e['confidence'],
             'method': e['method'], 'actual': e.get('actual'),
             'correct': e.get('correct'), 'retroactive': e.get('retroactive', False),
             'logged_at': e.get('logged_at'),
         } for p, e in items]
-        hu_out = [{
-            'phien': p, 'prediction': e['prediction'], 'confidence': e['confidence'],
-            'method': e['method'], 'actual': e.get('actual'),
-            'correct': e.get('correct'),
-        } for p, e in hu_items]
-        return jsonify({
-            'tx_stats': _log_stats(PREDICTION_LOG),
-            'hu_stats': _log_stats(HU_PREDICTION_LOG),
-            'tx_predictions': out,
-            'hu_predictions': hu_out,
-        })
+        return jsonify({'stats': _log_stats(), 'predictions': out})
     except Exception as e:
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
@@ -2765,31 +2367,28 @@ def prediction_log():
 
 @app.route('/api/reset', methods=['POST'])
 def reset_api():
-    global RESET_ID, HU_RESET_ID, HISTORY_CACHE, HU_HISTORY_CACHE
-    global PREDICTION_LOG, HU_PREDICTION_LOG
+    global RESET_ID, HISTORY_CACHE, PREDICTION_LOG
     try:
         raw_rows, success = fetch_sessions()
-        raw_hu, success_hu = fetch_hu_sessions()
         if success and raw_rows:
             valid = sorted(raw_rows, key=lambda x: x['phien'])
             if valid:
                 RESET_ID = valid[-1]['phien']
                 HISTORY_CACHE = {valid[-1]['phien']: valid[-1]}
-        if success_hu and raw_hu:
-            valid_hu = sorted(raw_hu, key=lambda x: x['phien'])
-            if valid_hu:
-                HU_RESET_ID = valid_hu[-1]['phien']
-                HU_HISTORY_CACHE = {valid_hu[-1]['phien']: valid_hu[-1]}
-        PREDICTION_LOG = {}
-        HU_PREDICTION_LOG = {}
-        MultiStrategyPredictor._STRATEGY_TRACK = defaultdict(
-            lambda: {'hit': 0, 'miss': 0, 'last_len': 0})
-        _save_log()
-        return jsonify({
-            'status': 'success',
-            'reset_tx_to': RESET_ID + 1 if RESET_ID else None,
-            'reset_hu_to': HU_RESET_ID + 1 if HU_RESET_ID else None,
-        })
+                PREDICTION_LOG = {}
+                MultiStrategyPredictor._STRATEGY_TRACK = defaultdict(
+                    lambda: {'hit': 0, 'miss': 0, 'last_len': 0})
+                _save_log()
+                return jsonify({'status': 'success', 'reset_to': RESET_ID + 1})
+        elif HISTORY_CACHE:
+            RESET_ID = max(HISTORY_CACHE.keys())
+            HISTORY_CACHE = {RESET_ID: HISTORY_CACHE[RESET_ID]}
+            PREDICTION_LOG = {}
+            MultiStrategyPredictor._STRATEGY_TRACK = defaultdict(
+                lambda: {'hit': 0, 'miss': 0, 'last_len': 0})
+            _save_log()
+            return jsonify({'status': 'success', 'reset_to': RESET_ID + 1})
+        return jsonify({'status': 'error', 'message': 'Không có dữ liệu để reset'}), 400
     except Exception as e:
         traceback.print_exc()
         return jsonify({'status': 'error', 'message': str(e)}), 500
