@@ -5,7 +5,7 @@ import json
 import hashlib
 import math
 from datetime import datetime
-from collections import Counter, defaultdict
+from collections import Counter, defaultdict, deque
 import requests
 from flask import Flask, render_template_string, jsonify, request
 from flask_cors import CORS
@@ -23,6 +23,10 @@ RESET_ID = 0
 PREDICTION_LOG = {}
 MAX_LOG_SIZE = 3000
 LOG_FILE = "prediction_log.json"
+
+# ==== V9.0: Pattern memory ====
+PATTERN_MEMORY = deque(maxlen=200)  # top winning patterns
+STRATEGY_BLACKLIST = set()  # strategies too weak
 
 SIGNAL_NAMES = {
     'markov3':      'Markov bậc 3',
@@ -96,11 +100,17 @@ SIGNAL_NAMES = {
     'markov_weighted':  'Markov trọng số',
     'ensemble_boost':   'Ensemble boost',
     'decision_tree':    'Cây quyết định',
-    # V8.0 NEW
     'streak_aware':     'Streak-aware',
     'tier2_boost':      'Tier-2 boost',
     'volatility_regime': 'Regime biến động',
     'cascade_pattern':  'Mẫu tầng',
+    # ==== V9.0 NEW ====
+    'regime_router':    'Định tuyến chế độ',
+    'confidence_gate':  'Cổng tin cậy',
+    'pattern_memory':   'Bộ nhớ mẫu',
+    'anti_streak':      'Chống chuỗi dài',
+    'safe_fallback':    'Fallback an toàn',
+    'dice_parity':      'Chẵn lẻ xúc xắc',
 }
 
 
@@ -157,11 +167,29 @@ def _entropy(results):
     return h
 
 
+def _detect_regime(results):
+    """V9.0: Phân loại chế độ thị trường."""
+    if len(results) < 12:
+        return 'unknown'
+    r = results[-20:] if len(results) >= 20 else results
+    flips = sum(1 for i in range(1, len(r)) if r[i] != r[i - 1])
+    flip_ratio = flips / (len(r) - 1)
+    runs = _run_lengths(r)
+    avg_run = sum(runs) / len(runs) if runs else 1.0
+
+    if flip_ratio >= 0.65:
+        return 'alternating'   # cầu 1-1
+    if flip_ratio <= 0.30 or avg_run >= 2.5:
+        return 'streaky'       # cầu bệt
+    return 'mixed'             # hỗn hợp
+
+
 # =====================================================================
-# PREDICTOR V8.0 - MD5 ONLY
+# PREDICTOR V9.0 - MD5 ONLY
 # =====================================================================
 class MultiStrategyPredictor:
     _STRATEGY_TRACK = defaultdict(lambda: {'hit': 0, 'miss': 0, 'last_len': 0})
+    _REGIME_TRACK = defaultdict(lambda: {'hit': 0, 'miss': 0})
 
     @staticmethod
     def _deterministic_choice(options, seed_str):
@@ -378,32 +406,26 @@ class MultiStrategyPredictor:
     # ==================== V8.0 NEW ====================
     @classmethod
     def _streak_aware(cls, valid):
-        """Streak-aware ensemble: điều chỉnh theo độ dài streak hiện tại."""
         if len(valid) < 15:
             return None, 0, 0
         r = [v['result'] for v in valid]
         cur_len, cur_val = cls._tail_run(r)
         if cur_len == 1:
-            # Streak vừa đổi: dựa vào pattern trước đó
             prev_run, prev_val = cls._tail_run(r[:-1])
             if prev_run >= 3:
                 return cur_val, 62, 1.10
             return None, 0, 0
         if cur_len == 2:
-            # Streak 2: follow momentum mạnh
             return cur_val, 58, 0.95
         if cur_len >= 7:
-            # Streak rất dài: bẻ
             opp = 'Xỉu' if cur_val == 'Tài' else 'Tài'
             return opp, 70, 1.20
         return None, 0, 0
 
     @classmethod
     def _tier2_boost(cls, valid):
-        """Tier-2 boost: signals tier-2 khi tier-1 không đồng thuận."""
         if len(valid) < 20:
             return None, 0, 0
-        # Tier-2 = Markov1 + weighted + recency
         t2 = [
             cls._markov_order1(valid),
             cls._weighted_freq(valid),
@@ -429,7 +451,6 @@ class MultiStrategyPredictor:
 
     @classmethod
     def _volatility_regime(cls, valid):
-        """Regime biến động: chia thành 3 chế độ."""
         if len(valid) < 25:
             return None, 0, 0
         r = [v['result'] for v in valid[-20:]]
@@ -438,11 +459,8 @@ class MultiStrategyPredictor:
         runs = _run_lengths(r)
         avg_run = sum(runs) / len(runs)
         p_tai = cls._seg_ratio(r, 20)
-
-        # HIGH volatility (>0.75): alternating → đảo
         if flip_ratio >= 0.75:
             return ('Xỉu' if r[-1] == 'Tài' else 'Tài'), 66, 1.15
-        # LOW volatility (<0.25): streaky → follow hoặc bẻ
         if flip_ratio <= 0.25:
             cur_len, cur_val = cls._tail_run(r)
             if cur_len <= 3:
@@ -450,7 +468,6 @@ class MultiStrategyPredictor:
             if cur_len >= 5:
                 opp = 'Xỉu' if cur_val == 'Tài' else 'Tài'
                 return opp, 64, 1.10
-        # MEDIUM: dùng majority trend
         if 0.40 <= flip_ratio <= 0.60:
             if p_tai >= 0.60:
                 return 'Tài', 58, 0.95
@@ -460,7 +477,6 @@ class MultiStrategyPredictor:
 
     @classmethod
     def _cascade_pattern(cls, valid):
-        """Mẫu tầng: kiểm tra pattern ở nhiều scale (2,3,5,8)."""
         if len(valid) < 20:
             return None, 0, 0
         r = [v['result'] for v in valid]
@@ -481,12 +497,114 @@ class MultiStrategyPredictor:
                     results.append((scale, top, ratio))
         if not results:
             return None, 0, 0
-        # Ưu tiên scale lớn hơn
         results.sort(key=lambda x: x[0], reverse=True)
         scale, top, ratio = results[0]
         conf = min(55 + int(ratio * 25) + scale * 2, 82)
         weight = 1.05 + (scale / 10)
         return top, conf, min(weight, 1.6)
+
+    # ==================== V9.0 NEW ====================
+    @classmethod
+    def _regime_router(cls, valid):
+        """Định tuyến theo chế độ thị trường."""
+        if len(valid) < 20:
+            return None, 0, 0
+        r = [v['result'] for v in valid]
+        regime = _detect_regime(r)
+
+        if regime == 'alternating':
+            # Cầu 1-1: dùng alternation + inverse
+            p1, c1, w1 = cls._alternation(valid, window=14)
+            p2, c2, w2 = cls._invert_cau(valid)
+            if p1 and p2 and p1 == p2:
+                return p1, min(c1 + 3, 82), 1.4
+            if p1:
+                return p1, c1, 1.15
+            if p2:
+                return p2, c2, 1.15
+
+        elif regime == 'streaky':
+            # Cầu bệt: follow streak ngắn, bẻ streak dài
+            cur_len, cur_val = cls._tail_run(r)
+            if cur_len <= 4:
+                p, c, w = cls._follow_trend(valid)
+                if p:
+                    return p, c, 1.2
+            if cur_len >= 6:
+                p, c, w = cls._exhaustion(valid)
+                if p:
+                    return p, c, 1.25
+            # fallback: markov2
+            p, c, w = cls._markov_order2(valid)
+            if p:
+                return p, c, w * 0.9
+
+        else:  # mixed
+            p, c, w = cls._ensemble_boost(valid)
+            if p:
+                return p, c, w * 0.95
+
+        return None, 0, 0
+
+    @classmethod
+    def _pattern_memory_signal(cls, valid):
+        """V9.0: dựa vào pattern thắng gần đây trong bộ nhớ."""
+        if len(PATTERN_MEMORY) < 5 or len(valid) < 15:
+            return None, 0, 0
+        r = [v['result'] for v in valid]
+        # Tìm pattern trong memory khớp với đuôi hiện tại
+        best = None
+        for entry in list(PATTERN_MEMORY)[-80:]:
+            pat = entry['pattern']
+            plen = len(pat)
+            if plen > len(r):
+                continue
+            # so khớp 3 phần tử cuối của pattern với đuôi
+            if tuple(r[-min(plen, 5):]) == pat[-min(plen, 5):]:
+                score = entry['hits'] * entry['ratio']
+                if best is None or score > best[0]:
+                    best = (score, entry['next'])
+        if best and best[0] >= 1.5:
+            conf = min(55 + int(best[0] * 4), 80)
+            return best[1], conf, 1.15
+        return None, 0, 0
+
+    @classmethod
+    def _anti_streak(cls, valid):
+        """V9.0: chống lại streak quá dài đang tiếp diễn."""
+        if len(valid) < 20:
+            return None, 0, 0
+        r = [v['result'] for v in valid]
+        cur_len, cur_val = cls._tail_run(r)
+        # Nếu streak hiện tại đã là streak dài nhất gần đây => có khả năng kết thúc
+        runs = _run_lengths(r[-40:])
+        if len(runs) < 4:
+            return None, 0, 0
+        # Bỏ run cuối, lấy max của các run trước
+        prev_max = max(runs[:-1]) if len(runs) > 1 else cur_len
+        if cur_len >= max(prev_max, 3):
+            opp = 'Xỉu' if cur_val == 'Tài' else 'Tài'
+            conf = min(58 + (cur_len - prev_max) * 3, 76)
+            return opp, conf, 1.10
+        return None, 0, 0
+
+    @classmethod
+    def _dice_parity(cls, valid):
+        """V9.0: dùng tổng xúc xắc để dự đoán xu hướng chẵn/lẻ."""
+        recent = [v for v in valid[-30:] if v.get('total') is not None]
+        if len(recent) < 15:
+            return None, 0, 0
+        # Tổng chẵn thường đi với Xỉu, lẻ với Tài (heuristic)
+        last_total = recent[-1].get('total', 0)
+        last_result = recent[-1]['result']
+        # Nếu 3 phiên gần tổng đều chẵn/lẻ và kết quả nghiêng 1 bên
+        last_totals = [v.get('total', 0) for v in recent[-5:]]
+        even_count = sum(1 for t in last_totals if t % 2 == 0)
+        if even_count >= 4:
+            return 'Xỉu', 56, 0.85
+        if even_count <= 1:
+            return 'Tài', 56, 0.85
+        return None, 0, 0
 
     # ==================== HARMONIC / WAVELET ====================
     @classmethod
@@ -1361,11 +1479,11 @@ class MultiStrategyPredictor:
         if not tr:
             return base_weight
         n = tr['hit'] + tr['miss']
-        if n < 5:
+        if n < 8:
             return base_weight
         acc = tr['hit'] / n
-        factor = 0.6 + (acc - 0.5) * 2.6
-        return base_weight * max(0.45, min(factor, 1.6))
+        factor = 0.55 + (acc - 0.5) * 2.8
+        return base_weight * max(0.40, min(factor, 1.65))
 
     @classmethod
     def _update_track(cls, name, pred, actual):
@@ -1385,7 +1503,7 @@ class MultiStrategyPredictor:
         if cls._STRATEGY_TRACK.get('__len__', {}).get('last_len') == cur_len:
             return
         cls._STRATEGY_TRACK = defaultdict(lambda: {'hit': 0, 'miss': 0, 'last_len': 0})
-        start = max(15, len(valid) - 60)
+        start = max(15, len(valid) - 80)
         for i in range(start, len(valid) - 1):
             history = valid[:i]
             actual = valid[i]['result']
@@ -1422,14 +1540,12 @@ class MultiStrategyPredictor:
 
     @staticmethod
     def _calibrate_confidence(raw_conf, log=None):
-        """V8.0: Calibration 2 tầng."""
         if log is None:
             log = PREDICTION_LOG
         evaluated = [e for e in log.values() if e.get('actual') is not None]
         if len(evaluated) < 20:
             return raw_conf
 
-        # Tầng 1: 30 gần nhất
         recent30 = sorted(
             [(p, e) for p, e in log.items() if e.get('actual') is not None],
             reverse=True
@@ -1438,24 +1554,24 @@ class MultiStrategyPredictor:
             return raw_conf
         acc30 = sum(1 for _, e in recent30 if e.get('correct')) / len(recent30)
 
-        # Tầng 2: 100 gần nhất (dài hạn)
         recent100 = sorted(
             [(p, e) for p, e in log.items() if e.get('actual') is not None],
             reverse=True
         )[:100]
         acc100 = sum(1 for _, e in recent100 if e.get('correct')) / len(recent100) if recent100 else acc30
 
-        # Blend: 60% ngắn hạn + 40% dài hạn
         acc_blend = acc30 * 0.6 + acc100 * 0.4
 
-        if acc_blend < 0.45:
-            return max(50, raw_conf - 12)
-        if acc_blend < 0.50:
-            return max(50, raw_conf - 6)
-        if acc_blend > 0.68:
-            return min(88, raw_conf + 4)
-        if acc_blend > 0.60:
-            return min(88, raw_conf + 2)
+        if acc_blend < 0.42:
+            return max(50, raw_conf - 14)
+        if acc_blend < 0.48:
+            return max(50, raw_conf - 8)
+        if acc_blend < 0.52:
+            return max(50, raw_conf - 3)
+        if acc_blend > 0.70:
+            return min(84, raw_conf + 5)
+        if acc_blend > 0.62:
+            return min(84, raw_conf + 2)
         return raw_conf
 
     # ==================== STRATEGY LIST ====================
@@ -1533,14 +1649,18 @@ class MultiStrategyPredictor:
             ('markov_weighted',   cls._markov_weighted),
             ('ensemble_boost',    cls._ensemble_boost),
             ('decision_tree',     cls._decision_tree),
-            # V8.0 NEW
             ('streak_aware',      cls._streak_aware),
             ('tier2_boost',       cls._tier2_boost),
             ('volatility_regime', cls._volatility_regime),
             ('cascade_pattern',   cls._cascade_pattern),
+            # V9.0 NEW
+            ('regime_router',     cls._regime_router),
+            ('pattern_memory',    cls._pattern_memory_signal),
+            ('anti_streak',       cls._anti_streak),
+            ('dice_parity',       cls._dice_parity),
         ]
 
-    # ==================== MAIN PREDICT ====================
+    # ==================== MAIN PREDICT V9.0 ====================
     @classmethod
     def predict(cls, valid, log=None):
         if log is None:
@@ -1581,11 +1701,19 @@ class MultiStrategyPredictor:
 
         cls._sync_track_from_history(valid)
 
+        # === V9.0: phát hiện chế độ ===
+        all_results = [v['result'] for v in valid]
+        regime = _detect_regime(all_results)
+
         log_odds = 0.0
         signals = []
         total_weight = 0.0
+        strong_signals = []  # V9.0: signals có conf >= 62
 
         for name, fn in cls._strategy_list():
+            # V9.0: skip blacklisted signals
+            if name in STRATEGY_BLACKLIST:
+                continue
             try:
                 p, conf, weight = fn(valid)
             except Exception:
@@ -1593,15 +1721,18 @@ class MultiStrategyPredictor:
             if p is None or weight == 0:
                 continue
             weight = cls._get_adaptive_weight(name, weight)
-            p_norm = max(0.51, min(conf / 100.0, 0.92))
+            p_norm = max(0.51, min(conf / 100.0, 0.90))
             lr = p_norm / (1 - p_norm)
             if p == 'Xỉu':
                 lr = 1.0 / lr
             contrib = weight * (1.0 if p == 'Tài' else -1.0) * (lr - 1.0)
             log_odds += contrib
             total_weight += weight
-            signals.append({'name': name, 'prediction': p,
-                            'confidence': conf, 'weight': round(weight, 2)})
+            sig = {'name': name, 'prediction': p,
+                   'confidence': conf, 'weight': round(weight, 2)}
+            signals.append(sig)
+            if conf >= 62 and weight >= 1.1:
+                strong_signals.append(sig)
 
         if not signals or total_weight == 0:
             r = [v['result'] for v in valid]
@@ -1635,6 +1766,7 @@ class MultiStrategyPredictor:
             pred = 'Xỉu'
             raw_conf = int((1 - p_tai) * 100)
 
+        # === V9.0: Regime-based adjustment ===
         recent = [v['result'] for v in valid[-20:]]
         entropy = _entropy(recent)
         votes_tai = sum(1 for s in signals if s['prediction'] == 'Tài')
@@ -1653,7 +1785,39 @@ class MultiStrategyPredictor:
         elif agreement < 0.75:
             penalty += 4
         bonus = 4 if agreement >= 0.9 and entropy < 0.6 else 0
-        final_conf = max(50, min(raw_conf - penalty + bonus, 88))
+
+        # V9.0: regime bonus
+        if regime == 'alternating' and pred == ('Xỉu' if recent[-1] == 'Tài' else 'Tài'):
+            bonus += 3
+        elif regime == 'streaky':
+            cur_len, cur_val = cls._tail_run(recent)
+            if cur_len <= 4 and pred == cur_val:
+                bonus += 2
+            elif cur_len >= 6 and pred != cur_val:
+                bonus += 2
+
+        final_conf = max(50, min(raw_conf - penalty + bonus, 84))
+
+        # === V9.0: Confidence Gate ===
+        # Nếu confidence < 55 và có strong signals, dùng strong signal
+        if final_conf < 55 and strong_signals:
+            strong_votes = {'Tài': 0, 'Xỉu': 0}
+            for s in strong_signals:
+                strong_votes[s['prediction']] += s['confidence'] * s['weight']
+            if strong_votes['Tài'] > strong_votes['Xỉu'] * 1.4:
+                pred = 'Tài'
+                final_conf = max(55, final_conf)
+            elif strong_votes['Xỉu'] > strong_votes['Tài'] * 1.4:
+                pred = 'Xỉu'
+                final_conf = max(55, final_conf)
+            # Nếu vẫn yếu, dùng fallback an toàn
+            elif final_conf < 52:
+                cur_len, cur_val = cls._tail_run(recent)
+                if cur_len >= 3:
+                    pred = 'Xỉu' if cur_val == 'Tài' else 'Tài'
+                else:
+                    pred = 'Xỉu' if recent[-1] == 'Tài' else 'Tài'
+                final_conf = 54
 
         signals_sorted = sorted(
             signals,
@@ -1678,11 +1842,13 @@ class MultiStrategyPredictor:
                 }
                 for s in signals_sorted[:8]
             ],
-            'reason': (f"{len(signals)} tín hiệu · entropy={entropy:.2f} · "
-                       f"đồng thuận={agreement:.0%}"),
+            'reason': (f"Regime={regime} · {len(signals)} tín hiệu · "
+                       f"entropy={entropy:.2f} · đồng thuận={agreement:.0%}"),
             'flipped': False,
+            'regime': regime,
         }
 
+        # === Anti-failure flip ===
         fail_streak = cls._check_failure_streak(log)
         if fail_streak >= 2 and not cls._was_flipped_last(log):
             result['prediction'] = 'Xỉu' if result['prediction'] == 'Tài' else 'Tài'
@@ -1692,7 +1858,43 @@ class MultiStrategyPredictor:
             result['flipped'] = True
 
         result['confidence'] = cls._calibrate_confidence(result['confidence'], log)
+
+        # === V9.0: update pattern memory ===
+        try:
+            cls._update_pattern_memory(valid)
+        except Exception:
+            pass
+
         return result
+
+    @classmethod
+    def _update_pattern_memory(cls, valid):
+        """V9.0: cập nhật bộ nhớ pattern thắng."""
+        global PATTERN_MEMORY
+        if len(valid) < 10:
+            return
+        r = [v['result'] for v in valid]
+        # Lấy pattern 3-5 phần tử cuối đã có kết quả
+        for plen in (3, 4, 5):
+            if len(r) < plen + 1:
+                continue
+            pat = tuple(r[-plen - 1:-1])  # pattern trước kết quả cuối
+            nxt = r[-1]
+            # Đếm số lần pattern này xuất hiện và đi với nxt
+            hits = 0
+            total = 0
+            for i in range(len(r) - plen - 1):
+                if tuple(r[i:i + plen]) == pat:
+                    total += 1
+                    if r[i + plen] == nxt:
+                        hits += 1
+            if total >= 2 and hits / total >= 0.6:
+                PATTERN_MEMORY.append({
+                    'pattern': pat,
+                    'next': nxt,
+                    'hits': hits,
+                    'ratio': hits / total,
+                })
 
 
 # =====================================================================
@@ -1818,7 +2020,7 @@ _load_log()
 
 
 # =====================================================================
-# HTML - V8.0 (Single Panel MD5, pastel theme)
+# HTML - giữ nguyên giao diện
 # =====================================================================
 HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="vi">
@@ -2122,7 +2324,7 @@ setInterval(fetchData,5000);
 
 
 # =====================================================================
-# ROUTES
+# ROUTES (giữ nguyên API contract)
 # =====================================================================
 @app.route('/')
 def index():
@@ -2336,6 +2538,7 @@ def algo_info():
             'signals_count': len(pred['signals']),
             'flipped': pred.get('flipped', False),
             'reason': pred['reason'],
+            'regime': pred.get('regime'),
             'recent_runs': _run_lengths(results[-40:]),
             'entropy': round(_entropy(results[-20:]), 3),
             'detected_cycle': {
@@ -2367,7 +2570,7 @@ def prediction_log():
 
 @app.route('/api/reset', methods=['POST'])
 def reset_api():
-    global RESET_ID, HISTORY_CACHE, PREDICTION_LOG
+    global RESET_ID, HISTORY_CACHE, PREDICTION_LOG, PATTERN_MEMORY
     try:
         raw_rows, success = fetch_sessions()
         if success and raw_rows:
@@ -2376,6 +2579,7 @@ def reset_api():
                 RESET_ID = valid[-1]['phien']
                 HISTORY_CACHE = {valid[-1]['phien']: valid[-1]}
                 PREDICTION_LOG = {}
+                PATTERN_MEMORY.clear()
                 MultiStrategyPredictor._STRATEGY_TRACK = defaultdict(
                     lambda: {'hit': 0, 'miss': 0, 'last_len': 0})
                 _save_log()
@@ -2384,6 +2588,7 @@ def reset_api():
             RESET_ID = max(HISTORY_CACHE.keys())
             HISTORY_CACHE = {RESET_ID: HISTORY_CACHE[RESET_ID]}
             PREDICTION_LOG = {}
+            PATTERN_MEMORY.clear()
             MultiStrategyPredictor._STRATEGY_TRACK = defaultdict(
                 lambda: {'hit': 0, 'miss': 0, 'last_len': 0})
             _save_log()
