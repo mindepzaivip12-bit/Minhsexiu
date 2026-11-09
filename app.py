@@ -28,6 +28,7 @@ PATTERN_MEMORY = deque(maxlen=200)
 STRATEGY_BLACKLIST = set()
 
 SIGNAL_NAMES = {
+    # Core
     'markov3': 'Markov bậc 3', 'markov2': 'Markov bậc 2', 'markov1': 'Markov bậc 1',
     'streak': 'Bẻ chuỗi', 'pattern': 'Khớp mẫu', 'weighted': 'Tần suất',
     'dice': 'Lệch xúc xắc', 'alternation': 'Cầu 1-1', 'momentum': 'Đà',
@@ -49,11 +50,25 @@ SIGNAL_NAMES = {
     'wavelet_trend': 'Xu hướng sóng', 'seasonal_cycle': 'Chu kỳ mùa',
     'markov_weighted': 'Markov trọng số', 'ensemble_boost': 'Ensemble boost',
     'decision_tree': 'Cây quyết định',
-    # V9.2 NEW
+    # V9.3 NEW - XU HƯỚNG
+    'macro_trend': 'Xu hướng vĩ mô',
+    'drift_trend': 'Độ trôi xu hướng',
+    'weighted_trend': 'Xu hướng trọng số',
+    'momentum_trend': 'Đà xu hướng',
+    'regime_trend': 'Chế độ xu hướng',
+    'trend_alignment': 'Căn xu hướng',
+    # V9.3 NEW - FULL CẦU
+    'cau_1_2': 'Cầu 1-2',
+    'cau_2_1': 'Cầu 2-1',
+    'cau_3_2': 'Cầu 3-2',
+    'cau_nghieng': 'Cầu nghiêng',
+    'cau_bac_thang': 'Cầu bậc thang',
+    'cau_ziczac': 'Cầu ziczac',
+    'cau_hon_hop': 'Cầu hỗn hợp',
     'cau_detector': 'Nhận diện cầu',
-    'follow_bet': 'Theo bệt',
-    'follow_bet_strong': 'Theo bệt mạnh',
-    'break_bet_smart': 'Bẻ bệt thông minh',
+    # V9.3 - bệt thông minh
+    'follow_bet_early': 'Theo bệt sớm',
+    'break_bet_late': 'Bẻ bệt muộn',
     'follow_dao': 'Theo cầu đảo',
     'follow_22': 'Theo cầu 2-2',
     'follow_33': 'Theo cầu 3-3',
@@ -115,8 +130,27 @@ def _entropy(results):
     return h
 
 
+def _tai_ratio(seq, win):
+    if not seq or win <= 0:
+        return 0.5
+    seg = seq[-win:] if len(seq) >= win else seq
+    return sum(1 for x in seg if x == 'Tài') / len(seg)
+
+
+def _linreg_slope(vals):
+    """Độ dốc hồi quy tuyến tính của chuỗi 0/1."""
+    n = len(vals)
+    if n < 3:
+        return 0.0
+    x_mean = (n - 1) / 2.0
+    y_mean = sum(vals) / n
+    num = sum((i - x_mean) * (vals[i] - y_mean) for i in range(n))
+    den = sum((i - x_mean) ** 2 for i in range(n))
+    return num / den if den > 0 else 0.0
+
+
 # =====================================================================
-# PREDICTOR V9.2 - CAU ADAPTIVE
+# PREDICTOR V9.3 - TREND + FULL CAU
 # =====================================================================
 class MultiStrategyPredictor:
     _STRATEGY_TRACK = defaultdict(lambda: {'hit': 0, 'miss': 0, 'last_len': 0})
@@ -141,279 +175,477 @@ class MultiStrategyPredictor:
 
     @staticmethod
     def _seg_ratio(seq, win):
-        if len(seq) < win or win <= 0:
-            return 0.5
-        seg = seq[-win:]
-        return sum(1 for x in seg if x == 'Tài') / len(seg)
+        return _tai_ratio(seq, win)
 
-    # ==================== V9.2: NHẬN DIỆN CẦU ====================
+    # ============ V9.3: NHẬN DIỆN CẦU ĐẦY ĐỦ ============
     @classmethod
     def _detect_cau_type(cls, r):
         """
-        Phân loại cầu:
-        - 'bet': cầu bệt (run >= 3, có ít nhất 2 run dài)
-        - 'dao_1_1': cầu đảo liên tục
-        - 'cau_2_2': cầu 2-2 ổn định
-        - 'cau_3_3': cầu 3-3 ổn định
+        Phân loại cầu đầy đủ:
+        - 'bet_short': bệt ngắn (2-3) - follow
+        - 'bet_mid': bệt vừa (4-5) - vùng chuyển tiếp
+        - 'bet_long': bệt dài (>=6) - ưu tiên bẻ
+        - 'dao_1_1': cầu đảo 1-1
+        - 'cau_2_2': cầu 2-2
+        - 'cau_3_3': cầu 3-3
+        - 'cau_1_2': cầu 1-2 (1 đơn, 2 đôi)
+        - 'cau_2_1': cầu 2-1 (2 đôi, 1 đơn)
+        - 'cau_3_2': cầu 3-2
+        - 'nghieng': cầu nghiêng (thiên 1 phía)
+        - 'bac_thang': cầu bậc thang
+        - 'ziczac': cầu ziczac xen kẽ
         - 'hon_hop': hỗn hợp
+        - 'unknown': chưa đủ DL
         """
         if len(r) < 12:
-            return 'unknown', 0
+            return 'unknown', 0, 0.5
 
-        runs = _run_lengths(r[-25:])
         cur_len, cur_val = cls._tail_run(r)
+        recent25 = r[-25:]
+        runs = _run_lengths(recent25)
+        p_tai = _tai_ratio(r, min(20, len(r)))
 
-        # Đảo 1-1
-        recent = r[-14:]
-        flips = sum(1 for i in range(1, len(recent)) if recent[i] != recent[i - 1])
-        flip_ratio = flips / (len(recent) - 1)
+        # --- Bệt ---
+        if cur_len >= 6:
+            return 'bet_long', cur_len, p_tai
+        if cur_len >= 4:
+            return 'bet_mid', cur_len, p_tai
+        if cur_len == 3:
+            # Có tiền lệ bệt >=3 trong lịch sử không?
+            prev_long = sum(1 for x in runs[:-1] if x >= 3)
+            if prev_long >= 1:
+                return 'bet_short', cur_len, p_tai
+            return 'bet_mid', cur_len, p_tai
+        if cur_len == 2:
+            prev_long = sum(1 for x in runs[:-1] if x >= 3)
+            if prev_long >= 2:
+                return 'bet_short', cur_len, p_tai
 
-        # Cầu bệt: run hiện tại dài VÀ có tiền lệ bệt trong lịch sử
-        if len(runs) >= 3:
-            long_runs = sum(1 for x in runs[:-1] if x >= 3)
-            if cur_len >= 3 and long_runs >= 1:
-                return 'bet', cur_len
-            if cur_len >= 5:
-                return 'bet', cur_len
+        # --- Đảo 1-1 ---
+        recent14 = r[-14:]
+        flips = sum(1 for i in range(1, len(recent14)) if recent14[i] != recent14[i - 1])
+        flip_ratio = flips / (len(recent14) - 1) if len(recent14) > 1 else 0
+        if flip_ratio >= 0.78:
+            return 'dao_1_1', cur_len, p_tai
 
-        if flip_ratio >= 0.72:
-            return 'dao_1_1', 0
-
-        # Cầu 2-2 / 3-3: pattern runs ổn định
-        if len(runs) >= 5:
+        # --- Cầu 1-2 / 2-1 / 3-2 ---
+        if len(runs) >= 6:
             recent_runs = runs[-6:]
-            two_count = sum(1 for x in recent_runs if x == 2)
-            three_count = sum(1 for x in recent_runs if x == 3)
-            if two_count >= 4:
-                return 'cau_2_2', 0
-            if three_count >= 4:
-                return 'cau_3_3', 0
+            # 1-2: pattern 1,2,1,2,1,2 hoặc 2,1,2,1,2,1
+            ones = sum(1 for x in recent_runs if x == 1)
+            twos = sum(1 for x in recent_runs if x == 2)
+            threes = sum(1 for x in recent_runs if x == 3)
+            # cầu 2-2
+            if twos >= 4 and ones + threes <= 2:
+                return 'cau_2_2', cur_len, p_tai
+            # cầu 3-3
+            if threes >= 4 and ones + twos <= 2:
+                return 'cau_3_3', cur_len, p_tai
+            # 1-2 pattern (xen kẽ 1 và 2)
+            if ones >= 3 and twos >= 2 and len(recent_runs) >= 5:
+                alt12 = all(
+                    (recent_runs[i] in (1, 2)) for i in range(len(recent_runs))
+                )
+                if alt12:
+                    return 'cau_1_2', cur_len, p_tai
+            # 2-1 pattern (giống 1-2 nhưng khác pha, vẫn gộp chung logic)
+            if ones >= 3 and twos >= 2:
+                return 'cau_2_1', cur_len, p_tai
+            # 3-2
+            if threes >= 2 and twos >= 2 and ones <= 2:
+                return 'cau_3_2', cur_len, p_tai
 
-        return 'hon_hop', 0
+        # --- Cầu nghiêng (thiên 1 phía) ---
+        if len(r) >= 15:
+            p20 = _tai_ratio(r, 20)
+            if p20 >= 0.70 or p20 <= 0.30:
+                return 'nghieng', cur_len, p_tai
 
-    # ==================== V9.2: SIGNALS BẮT CẦU ====================
+        # --- Bậc thang (runs tăng/giảm dần) ---
+        if len(runs) >= 4:
+            tail4 = runs[-4:]
+            increasing = all(tail4[i] <= tail4[i + 1] for i in range(3))
+            decreasing = all(tail4[i] >= tail4[i + 1] for i in range(3))
+            if (increasing or decreasing) and max(tail4) - min(tail4) >= 2:
+                return 'bac_thang', cur_len, p_tai
+
+        # --- Ziczac (runs xen kẽ 1-2-1-2 hoặc 1-3-1-3) ---
+        if len(runs) >= 5:
+            tail5 = runs[-5:]
+            if tail5[0] == tail5[2] == tail5[4] and tail5[1] == tail5[3]:
+                if tail5[0] != tail5[1]:
+                    return 'ziczac', cur_len, p_tai
+
+        return 'hon_hop', cur_len, p_tai
+
+    # ============ V9.3: XU HƯỚNG ============
     @classmethod
-    def _cau_detector(cls, valid):
-        """Signal meta - chỉ ra cầu hiện tại."""
+    def _macro_trend(cls, valid, win=40):
+        """Xu hướng vĩ mô - bias dài hạn."""
+        if len(valid) < 25:
+            return None, 0, 0
+        r = [v['result'] for v in valid]
+        w = min(win, len(r))
+        seg = r[-w:]
+        p_tai = sum(1 for x in seg if x == 'Tài') / w
+
+        # Xu hướng: dùng độ dốc của 3 cửa sổ
+        p10 = _tai_ratio(r, 10)
+        p20 = _tai_ratio(r, 20)
+        drift = p10 - p20
+
+        # Xu hướng mạnh Tài: bias + drift dương
+        if p20 >= 0.58 and drift >= -0.05:
+            conf = min(int((p20 - 0.5) * 180) + 54, 76)
+            return 'Tài', conf, 1.15
+        # Xu hướng mạnh Xỉu
+        if p20 <= 0.42 and drift <= 0.05:
+            conf = min(int((0.5 - p20) * 180) + 54, 76)
+            return 'Xỉu', conf, 1.15
+        # Bias lệch nhẹ nhưng ổn định
+        if p20 >= 0.55 and p10 >= 0.55:
+            return 'Tài', 58, 0.95
+        if p20 <= 0.45 and p10 <= 0.45:
+            return 'Xỉu', 58, 0.95
+        return None, 0, 0
+
+    @classmethod
+    def _drift_trend(cls, valid):
+        """Độ trôi xu hướng - slope hồi quy."""
+        if len(valid) < 20:
+            return None, 0, 0
+        r = [v['result'] for v in valid]
+        vals = [1 if x == 'Tài' else 0 for x in r[-20:]]
+        slope = _linreg_slope(vals)
+        # slope dương mạnh -> Tài
+        if slope >= 0.06:
+            conf = min(int(slope * 200) + 55, 75)
+            return 'Tài', conf, 1.20
+        if slope <= -0.06:
+            conf = min(int(-slope * 200) + 55, 75)
+            return 'Xỉu', conf, 1.20
+        return None, 0, 0
+
+    @classmethod
+    def _weighted_trend(cls, valid):
+        """Xu hướng trọng số theo exponential decay."""
+        if len(valid) < 20:
+            return None, 0, 0
+        r = [v['result'] for v in valid]
+        # 3 mức decay
+        scores = {}
+        for alpha in (0.85, 0.92, 0.97):
+            s_tai, s_xiu = 0.0, 0.0
+            for i, x in enumerate(r[-30:]):
+                w = alpha ** (len(r[-30:]) - i - 1)
+                if x == 'Tài':
+                    s_tai += w
+                else:
+                    s_xiu += w
+            total = s_tai + s_xiu
+            if total > 0:
+                scores[alpha] = s_tai / total
+        if not scores:
+            return None, 0, 0
+        p_avg = sum(scores.values()) / len(scores)
+        # Đồng thuận cả 3 mức
+        if all(p >= 0.58 for p in scores.values()):
+            return 'Tài', min(int(p_avg * 100) + 2, 76), 1.20
+        if all(p <= 0.42 for p in scores.values()):
+            return 'Xỉu', min(int((1 - p_avg) * 100) + 2, 76), 1.20
+        return None, 0, 0
+
+    @classmethod
+    def _momentum_trend(cls, valid):
+        """Đà xu hướng ngắn hạn."""
         if len(valid) < 12:
             return None, 0, 0
         r = [v['result'] for v in valid]
-        cau, cur_len = cls._detect_cau_type(r)
-        if cau == 'unknown':
-            return None, 0, 0
-        # Signal này không predict, chỉ log
+        p5 = _tai_ratio(r, 5)
+        p10 = _tai_ratio(r, 10)
+        p15 = _tai_ratio(r, 15) if len(r) >= 15 else p10
+        # Tăng tốc Tài
+        if p5 >= 0.70 and p10 >= 0.60 and p5 >= p10 >= p15 - 0.05:
+            return 'Tài', min(int(p5 * 100), 75), 1.10
+        # Tăng tốc Xỉu
+        if p5 <= 0.30 and p10 <= 0.40 and p5 <= p10 <= p15 + 0.05:
+            return 'Xỉu', min(int((1 - p5) * 100), 75), 1.10
         return None, 0, 0
 
     @classmethod
-    def _follow_bet(cls, valid):
-        """V9.2: THEO BỆT khi bệt đã ổn định."""
+    def _regime_trend(cls, valid):
+        """Chế độ xu hướng: strong_trend / weak_trend / chop."""
+        if len(valid) < 25:
+            return None, 0, 0
+        r = [v['result'] for v in valid]
+        p10 = _tai_ratio(r, 10)
+        p20 = _tai_ratio(r, 20)
+        # Chế độ trend rõ ràng
+        if abs(p20 - 0.5) >= 0.10 and abs(p10 - p20) <= 0.15:
+            if p20 >= 0.60:
+                return 'Tài', 64, 1.15
+            if p20 <= 0.40:
+                return 'Xỉu', 64, 1.15
+        return None, 0, 0
+
+    @classmethod
+    def _trend_alignment(cls, valid):
+        """Căn xu hướng đa cửa sổ - chỉ fire khi đồng thuận."""
+        if len(valid) < 25:
+            return None, 0, 0
+        r = [v['result'] for v in valid]
+        votes = []
+        for win in (8, 12, 16, 20, 25):
+            p = _tai_ratio(r, win)
+            if p >= 0.60:
+                votes.append('Tài')
+            elif p <= 0.40:
+                votes.append('Xỉu')
+        if len(votes) >= 4:
+            c = Counter(votes)
+            top, cnt = c.most_common(1)[0]
+            if cnt >= 4:
+                return top, min(55 + cnt * 4, 76), 1.25
+        return None, 0, 0
+
+    # ============ V9.3: CẦU SIGNALS THÔNG MINH ============
+    @classmethod
+    def _follow_bet_early(cls, valid):
+        """Theo bệt SỚM - chỉ khi bệt 2-3 phiên và có tiền lệ."""
         if len(valid) < 20:
             return None, 0, 0
         r = [v['result'] for v in valid]
-        cau, cur_len = cls._detect_cau_type(r)
-
-        if cau != 'bet':
+        cau, cur_len, p_tai = cls._detect_cau_type(r)
+        if cau not in ('bet_short',):
             return None, 0, 0
-
         cur_val = r[-1]
         runs = _run_lengths(r[-40:])
-
-        # Đếm số run trước đó có cùng độ dài ±1 với run hiện tại
-        same_len_runs = sum(1 for x in runs[:-1] if abs(x - cur_len) <= 1)
-        total_prev_runs = len(runs) - 1
-
-        if total_prev_runs == 0:
+        # Kiểm tra: trong 40 phiên gần, các run >= 3 có nhiều không?
+        prev_long = sum(1 for x in runs[:-1] if x >= 3)
+        if prev_long < 2:
             return None, 0, 0
-
-        ratio = same_len_runs / total_prev_runs
-
-        # Cầu bệt THẬT: các run trước cũng dài tương tự
-        if ratio >= 0.5 or cur_len <= 4:
-            conf = min(60 + int(ratio * 20) + min(cur_len, 6) * 2, 82)
-            weight = 1.3 + ratio * 0.5
-            return cur_val, conf, min(weight, 1.9)
-
-        # Cầu bệt SẮP gãy: run hiện tại đã dài hơn các run trước nhiều
-        max_prev = max(runs[:-1]) if len(runs) > 1 else cur_len
-        if cur_len >= max_prev + 2:
-            return None, 0, 0  # để signal bẻ xử lý
-
-        return cur_val, 60, 1.2
+        # Bệt đã được chứng minh là ổn định
+        conf = min(58 + cur_len * 4 + prev_long * 2, 76)
+        return cur_val, conf, 1.30
 
     @classmethod
-    def _follow_bet_strong(cls, valid):
-        """V9.2: THEO BỆT MẠNH - chỉ khi bệt đã kéo dài RẤT ổn định."""
-        if len(valid) < 30:
-            return None, 0, 0
-        r = [v['result'] for v in valid]
-        cau, cur_len = cls._detect_cau_type(r)
-
-        if cau != 'bet' or cur_len < 4:
-            return None, 0, 0
-
-        cur_val = r[-1]
-        runs = _run_lengths(r[-50:])
-
-        # Yêu cầu: ít nhất 3 run trước đó đều >= 3
-        long_prev = sum(1 for x in runs[:-1] if x >= 3)
-        if long_prev < 3:
-            return None, 0, 0
-
-        # Và run hiện tại chưa vượt quá max run trước (chưa gãy)
-        max_prev = max(runs[:-1]) if len(runs) > 1 else cur_len
-        if cur_len <= max_prev + 1:
-            conf = min(66 + long_prev * 2, 84)
-            return cur_val, conf, 1.7
-
-        return None, 0, 0
-
-    @classmethod
-    def _break_bet_smart(cls, valid):
-        """V9.2: BẺ BỆT THÔNG MINH - chỉ bẻ khi có dấu hiệu gãy."""
+    def _break_bet_late(cls, valid):
+        """Bẻ bệt MUỘN - chỉ khi bệt >= 5 phiên."""
         if len(valid) < 20:
             return None, 0, 0
         r = [v['result'] for v in valid]
-        cau, cur_len = cls._detect_cau_type(r)
-
-        if cau != 'bet' or cur_len < 3:
+        cau, cur_len, p_tai = cls._detect_cau_type(r)
+        if cau not in ('bet_long', 'bet_mid'):
             return None, 0, 0
-
+        if cur_len < 5:
+            return None, 0, 0
         cur_val = r[-1]
         opp = 'Xỉu' if cur_val == 'Tài' else 'Tài'
         runs = _run_lengths(r[-40:])
-
         max_prev = max(runs[:-1]) if len(runs) > 1 else 0
-
-        # Chỉ bẻ khi:
-        # 1. Run hiện tại VƯỢT max trước đó (đang phá kỷ lục)
-        # 2. HOẶC run hiện tại >= 6 (quá dài)
-        # 3. HOẶC sắp gãy theo Fibonacci
-        should_break = False
-        conf = 55
-        weight = 1.0
-
-        if cur_len > max_prev and cur_len >= 4:
-            should_break = True
+        # Bẻ khi:
+        # 1. cur_len > max_prev (phá kỷ lục)
+        # 2. HOẶC cur_len >= 6 (bệt quá dài)
+        # 3. HOẶC Fibonacci
+        conf, weight = 0, 0
+        if cur_len > max_prev and cur_len >= 5:
             conf = min(62 + (cur_len - max_prev) * 3, 78)
-            weight = 1.2
-
+            weight = 1.30
         if cur_len >= 6:
-            should_break = True
             conf = max(conf, min(64 + (cur_len - 6) * 2, 80))
-            weight = max(weight, 1.3)
-
-        if cur_len in (5, 8, 13):  # Fibonacci
-            should_break = True
+            weight = max(weight, 1.40)
+        if cur_len in (5, 8, 13):
             conf = max(conf, 66)
-            weight = max(weight, 1.15)
-
-        if should_break:
+            weight = max(weight, 1.20)
+        if conf > 0:
             return opp, conf, weight
-
         return None, 0, 0
 
     @classmethod
     def _follow_dao(cls, valid):
-        """V9.2: THEO CẦU ĐẢO 1-1."""
+        """Theo cầu đảo 1-1."""
         if len(valid) < 14:
             return None, 0, 0
         r = [v['result'] for v in valid]
-        cau, _ = cls._detect_cau_type(r)
-
+        cau, _, _ = cls._detect_cau_type(r)
         if cau != 'dao_1_1':
             return None, 0, 0
-
         recent = r[-14:]
         flips = sum(1 for i in range(1, len(recent)) if recent[i] != recent[i - 1])
         ratio = flips / (len(recent) - 1)
-
         nxt = 'Xỉu' if r[-1] == 'Tài' else 'Tài'
-        conf = min(60 + int(ratio * 25), 84)
-        weight = 1.35 + (ratio - 0.72) * 0.5
-        return nxt, conf, min(weight, 1.9)
+        conf = min(60 + int(ratio * 22), 82)
+        weight = 1.35 + (ratio - 0.78) * 0.5
+        return nxt, conf, min(weight, 1.85)
 
     @classmethod
     def _follow_22(cls, valid):
-        """V9.2: THEO CẦU 2-2."""
+        """Theo cầu 2-2."""
         if len(valid) < 20:
             return None, 0, 0
         r = [v['result'] for v in valid]
-        cau, _ = cls._detect_cau_type(r)
-
+        cau, cur_len, _ = cls._detect_cau_type(r)
         if cau != 'cau_2_2':
             return None, 0, 0
-
-        runs = _run_lengths(r)
-        cur_len, cur_val = cls._tail_run(r)
-
+        cur_val = r[-1]
         if cur_len == 1:
             return cur_val, 62, 1.35
         if cur_len == 2:
             opp = 'Xỉu' if cur_val == 'Tài' else 'Tài'
-            return opp, 64, 1.4
+            return opp, 64, 1.40
         return None, 0, 0
 
     @classmethod
     def _follow_33(cls, valid):
-        """V9.2: THEO CẦU 3-3."""
+        """Theo cầu 3-3."""
         if len(valid) < 24:
             return None, 0, 0
         r = [v['result'] for v in valid]
-        cau, _ = cls._detect_cau_type(r)
-
+        cau, cur_len, _ = cls._detect_cau_type(r)
         if cau != 'cau_3_3':
             return None, 0, 0
-
-        cur_len, cur_val = cls._tail_run(r)
+        cur_val = r[-1]
         opp = 'Xỉu' if cur_val == 'Tài' else 'Tài'
-
         if cur_len <= 2:
             return cur_val, 60, 1.25
         if cur_len == 3:
-            return opp, 66, 1.4
+            return opp, 66, 1.40
+        return None, 0, 0
+
+    @classmethod
+    def _cau_1_2(cls, valid):
+        """Cầu 1-2 / 2-1: dựa trên run hiện tại."""
+        if len(valid) < 20:
+            return None, 0, 0
+        r = [v['result'] for v in valid]
+        cau, cur_len, _ = cls._detect_cau_type(r)
+        if cau not in ('cau_1_2', 'cau_2_1'):
+            return None, 0, 0
+        cur_val = r[-1]
+        opp = 'Xỉu' if cur_val == 'Tài' else 'Tài'
+        # Nếu run hiện tại = 1 -> khả năng sang run khác = 2
+        if cur_len == 1:
+            return cur_val, 62, 1.25
+        if cur_len == 2:
+            return opp, 63, 1.30
+        return None, 0, 0
+
+    @classmethod
+    def _cau_3_2(cls, valid):
+        """Cầu 3-2."""
+        if len(valid) < 24:
+            return None, 0, 0
+        r = [v['result'] for v in valid]
+        cau, cur_len, _ = cls._detect_cau_type(r)
+        if cau != 'cau_3_2':
+            return None, 0, 0
+        cur_val = r[-1]
+        opp = 'Xỉu' if cur_val == 'Tài' else 'Tài'
+        if cur_len <= 2:
+            return cur_val, 60, 1.20
+        if cur_len == 3:
+            return opp, 63, 1.25
+        return None, 0, 0
+
+    @classmethod
+    def _cau_nghieng(cls, valid):
+        """Cầu nghiêng - thiên 1 phía rõ rệt."""
+        if len(valid) < 20:
+            return None, 0, 0
+        r = [v['result'] for v in valid]
+        cau, _, p_tai = cls._detect_cau_type(r)
+        if cau != 'nghieng':
+            return None, 0, 0
+        # Cầu nghiêng: theo phe đang thắng
+        if p_tai >= 0.68:
+            return 'Tài', min(int(p_tai * 100), 76), 1.20
+        if p_tai <= 0.32:
+            return 'Xỉu', min(int((1 - p_tai) * 100), 76), 1.20
+        return None, 0, 0
+
+    @classmethod
+    def _cau_bac_thang(cls, valid):
+        """Cầu bậc thang - runs tăng/giảm dần."""
+        if len(valid) < 24:
+            return None, 0, 0
+        r = [v['result'] for v in valid]
+        cau, cur_len, _ = cls._detect_cau_type(r)
+        if cau != 'bac_thang':
+            return None, 0, 0
+        runs = _run_lengths(r[-25:])
+        tail = runs[-4:]
+        cur_val = r[-1]
+        opp = 'Xỉu' if cur_val == 'Tài' else 'Tài'
+        # Nếu runs đang tăng -> sang run mới (đảo) với độ dài lớn hơn
+        # Nếu đang giảm -> tiếp tục hiện tại
+        increasing = all(tail[i] <= tail[i + 1] for i in range(len(tail) - 1))
+        if increasing and cur_len >= tail[-1] - 1:
+            return opp, 62, 1.15
+        # Đang giảm -> sắp đảo
+        decreasing = all(tail[i] >= tail[i + 1] for i in range(len(tail) - 1))
+        if decreasing:
+            return opp, 60, 1.10
+        return None, 0, 0
+
+    @classmethod
+    def _cau_ziczac(cls, valid):
+        """Cầu ziczac xen kẽ."""
+        if len(valid) < 20:
+            return None, 0, 0
+        r = [v['result'] for v in valid]
+        cau, cur_len, _ = cls._detect_cau_type(r)
+        if cau != 'ziczac':
+            return None, 0, 0
+        runs = _run_lengths(r[-20:])
+        if len(runs) < 5:
+            return None, 0, 0
+        # Ziczac 1-2-1-2: nếu run hiện tại = 1, tiếp theo là 2 (cùng value)
+        # nếu run = 2, tiếp theo đảo
+        tail5 = runs[-5:]
+        if tail5[0] == tail5[2] == tail5[4] and tail5[1] == tail5[3]:
+            pattern_len = tail5[0]
+            cur_val = r[-1]
+            opp = 'Xỉu' if cur_val == 'Tài' else 'Tài'
+            if cur_len <= pattern_len:
+                return cur_val, 62, 1.20
+            return opp, 63, 1.25
         return None, 0, 0
 
     @classmethod
     def _cau_momentum(cls, valid):
-        """V9.2: Đà cầu - follow khi cầu đang chạy mạnh."""
+        """Đà cầu."""
         if len(valid) < 15:
             return None, 0, 0
         r = [v['result'] for v in valid]
-        cau, cur_len = cls._detect_cau_type(r)
-
-        if cau == 'bet' and cur_len >= 2:
-            return r[-1], min(58 + cur_len * 3, 76), 1.1
-
+        cau, cur_len, _ = cls._detect_cau_type(r)
+        if cau in ('bet_short', 'bet_mid') and cur_len >= 2:
+            return r[-1], min(56 + cur_len * 3, 74), 1.05
         if cau == 'dao_1_1':
-            return ('Xỉu' if r[-1] == 'Tài' else 'Tài'), 62, 1.2
-
+            return ('Xỉu' if r[-1] == 'Tài' else 'Tài'), 62, 1.20
+        if cau == 'nghieng':
+            p_tai = _tai_ratio(r, 20)
+            return ('Tài' if p_tai >= 0.5 else 'Xỉu'), 60, 1.05
         return None, 0, 0
 
     @classmethod
     def _reversal_signal(cls, valid):
-        """V9.2: Tín hiệu đảo chiều - phát hiện cầu sắp gãy."""
+        """Tín hiệu đảo chiều."""
         if len(valid) < 25:
             return None, 0, 0
         r = [v['result'] for v in valid]
-        cau, cur_len = cls._detect_cau_type(r)
-
-        if cau != 'bet':
+        cau, cur_len, _ = cls._detect_cau_type(r)
+        if cau not in ('bet_mid', 'bet_long'):
             return None, 0, 0
-
         cur_val = r[-1]
         runs = _run_lengths(r[-40:])
         max_prev = max(runs[:-1]) if len(runs) > 1 else 0
-
-        # Đảo chiều khi: run hiện tại = max_prev + 1 (vừa phá kỷ lục)
-        # và có ít nhất 2 lần trước đó bị gãy ở độ dài này
         if cur_len >= max_prev and max_prev >= 3:
             opp = 'Xỉu' if cur_val == 'Tài' else 'Tài'
             conf = min(62 + (cur_len - max_prev) * 4, 78)
             return opp, conf, 1.15
-
         return None, 0, 0
 
-    # ==================== CÁC SIGNAL CŨ (giữ nguyên) ====================
+    # ============ SIGNALS CỔ ĐIỂN (giữ nguyên) ============
     @staticmethod
     def _markov_order3(valid):
         if len(valid) < 25:
@@ -481,9 +713,8 @@ class MultiStrategyPredictor:
         r = [v['result'] for v in valid]
         streak, last = MultiStrategyPredictor._tail_run(r)
         opp = 'Xỉu' if last == 'Tài' else 'Tài'
-        # V9.2: chỉ bẻ khi streak THỰC SỰ dài và không phải bệt
-        cau, _ = MultiStrategyPredictor._detect_cau_type(r)
-        if cau == 'bet':
+        cau, _, _ = MultiStrategyPredictor._detect_cau_type(r)
+        if cau in ('bet_short', 'bet_mid', 'bet_long'):
             return None, 0, 0
         if streak < 4 or streak > 9:
             return None, 0, 0
@@ -496,10 +727,9 @@ class MultiStrategyPredictor:
                 if run >= 4:
                     breaks += 1
                 run = 1
-        total_obs = breaks
-        if total_obs < 2:
+        if breaks < 2:
             return None, 0, 0
-        p_break = breaks / total_obs
+        p_break = breaks / (breaks + continues + 1)
         if p_break >= 0.55:
             conf = min(56 + int(p_break * 20) + (streak - 4) * 2, 74)
             return opp, conf, 1.1
@@ -511,9 +741,8 @@ class MultiStrategyPredictor:
             return None, 0, 0
         r = [v['result'] for v in valid]
         streak, last = MultiStrategyPredictor._tail_run(r)
-        cau, _ = MultiStrategyPredictor._detect_cau_type(r)
-        # V9.2: chỉ khi KHÔNG phải bệt thật
-        if cau == 'bet':
+        cau, _, _ = MultiStrategyPredictor._detect_cau_type(r)
+        if cau in ('bet_short', 'bet_mid', 'bet_long'):
             return None, 0, 0
         if streak < 7:
             return None, 0, 0
@@ -541,9 +770,8 @@ class MultiStrategyPredictor:
             return None, 0, 0
         r = [v['result'] for v in valid]
         streak, last = MultiStrategyPredictor._tail_run(r)
-        cau, _ = MultiStrategyPredictor._detect_cau_type(r)
-        # V9.2: theo cầu khi bệt, còn không thì hạn chế
-        if cau == 'bet':
+        cau, _, _ = MultiStrategyPredictor._detect_cau_type(r)
+        if cau in ('bet_short', 'bet_mid', 'bet_long'):
             return last, min(58 + streak * 2, 70), 1.15
         if streak >= 5 or streak <= 1:
             return None, 0, 0
@@ -570,11 +798,10 @@ class MultiStrategyPredictor:
         r = [v['result'] for v in valid]
 
         def tai_ratio(win):
-            seg = r[-win:]
-            return sum(1 for x in seg if x == 'Tài') / len(seg)
+            return _tai_ratio(r, win)
 
         p10 = tai_ratio(10)
-        p20 = tai_ratio(20) if len(r) >= 20 else p10
+        p20 = tai_ratio(20)
         p40 = tai_ratio(40) if len(r) >= 40 else p20
         if p10 > 0.55 and p20 > 0.52 and p10 >= p20 - 0.05 and p10 - p40 >= 0.05:
             return 'Tài', min(int((p10 - 0.5) * 200 + 52), 78), 1.20
@@ -701,7 +928,7 @@ class MultiStrategyPredictor:
             return 'Xỉu', int((1 - p) * 100), 1.00
         return None, 0, 0
 
-    # ==================== N-GRAM ====================
+    # ============ N-GRAM & PATTERN ============
     @classmethod
     def _ngram_signal(cls, r, n):
         if len(r) < n + 6:
@@ -775,7 +1002,7 @@ class MultiStrategyPredictor:
                         return nxt, min(conf, 72), 1.05
         return None, 0, 0
 
-    # ==================== STATISTICAL ====================
+    # ============ STATISTICAL ============
     @classmethod
     def _bayes_recent(cls, valid, prior_strength=4.0):
         if len(valid) < 10:
@@ -853,16 +1080,16 @@ class MultiStrategyPredictor:
             return 'Xỉu', min(int((1 - p_tai) * 100) + 3, 80), 1.15
         return None, 0, 0
 
-    # ==================== META ====================
+    # ============ META ============
     @classmethod
     def _signal_consensus(cls, valid):
         if len(valid) < 10:
             return None, 0, 0
         key_signals = [
             cls._markov_order2(valid),
-            cls._follow_bet(valid),
-            cls._follow_bet_strong(valid),
-            cls._break_bet_smart(valid),
+            cls._macro_trend(valid),
+            cls._weighted_trend(valid),
+            cls._break_bet_late(valid),
             cls._follow_dao(valid),
         ]
         votes = {'Tài': 0, 'Xỉu': 0}
@@ -901,8 +1128,8 @@ class MultiStrategyPredictor:
             return None, 0, 0
         r = [v['result'] for v in valid]
         cur_len, cur_val = cls._tail_run(r)
-        cau, _ = cls._detect_cau_type(r)
-        if cau == 'bet':
+        cau, _, _ = cls._detect_cau_type(r)
+        if cau in ('bet_short', 'bet_mid', 'bet_long'):
             return None, 0, 0
         if cur_len < 4:
             return None, 0, 0
@@ -1002,7 +1229,7 @@ class MultiStrategyPredictor:
             return None, 0, 0
         stable_signals = [
             cls._markov_order2(valid),
-            cls._trend(valid),
+            cls._macro_trend(valid),
             cls._transition_matrix(valid),
         ]
         votes = {'Tài': 0.0, 'Xỉu': 0.0}
@@ -1027,26 +1254,39 @@ class MultiStrategyPredictor:
         if len(valid) < 20:
             return None, 0, 0
         r = [v['result'] for v in valid]
-        cau, cur_len = cls._detect_cau_type(r)
+        cau, cur_len, _ = cls._detect_cau_type(r)
         tail_len, tail_val = cls._tail_run(r)
 
-        # V9.2: cây quyết định theo cầu
-        if cau == 'bet':
-            if cur_len <= 4:
-                return tail_val, 64, 1.25
-            return None, 0, 0  # để signal bẻ xử lý
-
+        # V9.3: cây quyết định theo cầu + xu hướng
+        if cau == 'bet_short':
+            return tail_val, 64, 1.25
+        if cau == 'bet_long':
+            opp = 'Xỉu' if tail_val == 'Tài' else 'Tài'
+            if tail_len >= 6:
+                return opp, 66, 1.35
         if cau == 'dao_1_1':
             opp = 'Xỉu' if tail_val == 'Tài' else 'Tài'
-            return opp, 66, 1.3
-
+            return opp, 66, 1.30
         if cau == 'cau_2_2':
             if tail_len == 1:
-                return tail_val, 62, 1.2
+                return tail_val, 62, 1.20
             if tail_len == 2:
                 opp = 'Xỉu' if tail_val == 'Tài' else 'Tài'
-                return opp, 64, 1.3
+                return opp, 64, 1.30
+        if cau == 'nghieng':
+            p20 = _tai_ratio(r, 20)
+            if p20 >= 0.68:
+                return 'Tài', 62, 1.15
+            if p20 <= 0.32:
+                return 'Xỉu', 62, 1.15
 
+        # Fallback: dùng trend alignment
+        p10 = _tai_ratio(r, 10)
+        p20 = _tai_ratio(r, 20)
+        if p10 >= 0.62 and p20 >= 0.58:
+            return 'Tài', 60, 1.10
+        if p10 <= 0.38 and p20 <= 0.42:
+            return 'Xỉu', 60, 1.10
         return None, 0, 0
 
     @classmethod
@@ -1125,11 +1365,17 @@ class MultiStrategyPredictor:
         if len(valid) < 20:
             return None, 0, 0
         r = [v['result'] for v in valid]
-        cau, cur_len = cls._detect_cau_type(r)
-        if cau == 'bet':
+        cau, _, _ = cls._detect_cau_type(r)
+        if cau in ('bet_short', 'bet_mid', 'bet_long'):
             return None, 0, 0
         if cau == 'dao_1_1':
             return ('Xỉu' if r[-1] == 'Tài' else 'Tài'), 62, 1.2
+        if cau == 'nghieng':
+            p20 = _tai_ratio(r, 20)
+            if p20 >= 0.68:
+                return 'Tài', 62, 1.10
+            if p20 <= 0.32:
+                return 'Xỉu', 62, 1.10
         return None, 0, 0
 
     @classmethod
@@ -1137,8 +1383,8 @@ class MultiStrategyPredictor:
         if len(valid) < 8:
             return None, 0, 0
         r = [v['result'] for v in valid]
-        cau, _ = cls._detect_cau_type(r)
-        if cau == 'bet':
+        cau, _, _ = cls._detect_cau_type(r)
+        if cau in ('bet_short', 'bet_mid', 'bet_long'):
             return None, 0, 0
         cur_len, cur_val = cls._tail_run(r)
         if cur_len < 5 or cur_len > 10:
@@ -1241,8 +1487,8 @@ class MultiStrategyPredictor:
         if len(valid) < 15:
             return None, 0, 0
         r = [v['result'] for v in valid]
-        cau, _ = cls._detect_cau_type(r)
-        if cau == 'bet':
+        cau, _, _ = cls._detect_cau_type(r)
+        if cau in ('bet_short',):
             return None, 0, 0
         cur_len, cur_val = cls._tail_run(r)
         fibs = [3, 5, 8, 13]
@@ -1338,7 +1584,7 @@ class MultiStrategyPredictor:
             return best[1], conf, 1.15
         return None, 0, 0
 
-    # ==================== ADAPTIVE ====================
+    # ============ ADAPTIVE ============
     @classmethod
     def _get_adaptive_weight(cls, name, base_weight):
         tr = cls._STRATEGY_TRACK.get(name)
@@ -1438,20 +1684,31 @@ class MultiStrategyPredictor:
             return min(84, raw_conf + 2)
         return raw_conf
 
-    # ==================== STRATEGY LIST V9.2 ====================
+    # ============ STRATEGY LIST V9.3 ============
     @classmethod
     def _strategy_list(cls):
         return [
-            # V9.2 cầu signals - ưu tiên cao
-            ('follow_bet',         cls._follow_bet),
-            ('follow_bet_strong',  cls._follow_bet_strong),
-            ('break_bet_smart',    cls._break_bet_smart),
-            ('follow_dao',         cls._follow_dao),
-            ('follow_22',          cls._follow_22),
-            ('follow_33',          cls._follow_33),
-            ('cau_momentum',       cls._cau_momentum),
-            ('reversal_signal',    cls._reversal_signal),
-            # Cổ điển
+            # === V9.3 XU HƯỚNG (ưu tiên cao) ===
+            ('macro_trend',      cls._macro_trend),
+            ('drift_trend',      cls._drift_trend),
+            ('weighted_trend',   cls._weighted_trend),
+            ('momentum_trend',   cls._momentum_trend),
+            ('regime_trend',     cls._regime_trend),
+            ('trend_alignment',  cls._trend_alignment),
+            # === V9.3 FULL CẦU ===
+            ('follow_bet_early', cls._follow_bet_early),
+            ('break_bet_late',   cls._break_bet_late),
+            ('follow_dao',       cls._follow_dao),
+            ('follow_22',        cls._follow_22),
+            ('follow_33',        cls._follow_33),
+            ('cau_1_2',          cls._cau_1_2),
+            ('cau_3_2',          cls._cau_3_2),
+            ('cau_nghieng',      cls._cau_nghieng),
+            ('cau_bac_thang',    cls._cau_bac_thang),
+            ('cau_ziczac',       cls._cau_ziczac),
+            ('cau_momentum',     cls._cau_momentum),
+            ('reversal_signal',  cls._reversal_signal),
+            # === Cổ điển ===
             ('markov3',      cls._markov_order3),
             ('markov2',      cls._markov_order2),
             ('markov1',      cls._markov_order1),
@@ -1504,7 +1761,7 @@ class MultiStrategyPredictor:
             ('dice_parity',       cls._dice_parity),
         ]
 
-    # ==================== MAIN PREDICT V9.2 ====================
+    # ============ MAIN PREDICT V9.3 ============
     @classmethod
     def predict(cls, valid, log=None):
         if log is None:
@@ -1518,7 +1775,7 @@ class MultiStrategyPredictor:
                 'signals': [], 'top_signals': ['Chưa có DL'],
                 'signals_strength': [],
                 'reason': 'Không có dữ liệu', 'flipped': False,
-                'cau': 'unknown',
+                'cau': 'unknown', 'cau_label': 'Chưa đủ DL',
             }
 
         if len(valid) < 5:
@@ -1541,13 +1798,14 @@ class MultiStrategyPredictor:
                 'prediction': opp, 'confidence': conf,
                 'method': method, 'signals': [],
                 'top_signals': [method], 'signals_strength': [],
-                'reason': reason, 'flipped': False, 'cau': 'unknown',
+                'reason': reason, 'flipped': False,
+                'cau': 'unknown', 'cau_label': 'Chưa đủ DL',
             }
 
         cls._sync_track_from_history(valid)
 
         all_results = [v['result'] for v in valid]
-        cau_type, cur_streak_len = cls._detect_cau_type(all_results)
+        cau_type, cur_streak_len, p_tai_20 = cls._detect_cau_type(all_results)
         cur_streak_val = all_results[-1]
 
         log_odds = 0.0
@@ -1555,13 +1813,19 @@ class MultiStrategyPredictor:
         total_weight = 0.0
         strong_signals = []
 
-        # V9.2: Track cầu signals riêng
+        # Track riêng cho cầu và xu hướng
         cau_follow_weight = 0.0
         cau_break_weight = 0.0
+        trend_weight = 0.0
+        trend_dir = None
+        trend_votes = {'Tài': 0.0, 'Xỉu': 0.0}
 
-        cau_signals = {'follow_bet', 'follow_bet_strong', 'follow_dao',
-                       'follow_22', 'follow_33', 'cau_momentum'}
-        break_signals = {'break_bet_smart', 'reversal_signal'}
+        cau_follow_names = {'follow_bet_early', 'follow_dao', 'follow_22',
+                            'follow_33', 'cau_1_2', 'cau_3_2', 'cau_momentum',
+                            'cau_nghieng', 'cau_bac_thang', 'cau_ziczac'}
+        cau_break_names = {'break_bet_late', 'reversal_signal'}
+        trend_names = {'macro_trend', 'drift_trend', 'weighted_trend',
+                       'momentum_trend', 'regime_trend', 'trend_alignment'}
 
         for name, fn in cls._strategy_list():
             if name in STRATEGY_BLACKLIST:
@@ -1576,21 +1840,38 @@ class MultiStrategyPredictor:
 
             is_follow = (p == cur_streak_val)
 
-            # V9.2: CHỈ phạt follow khi KHÔNG phải cầu bệt rõ ràng
-            # Nếu là bệt thật thì KHÔNG phạt, ngược lại còn boost
-            if cau_type == 'bet':
-                # Bệt thật: boost follow signals, giảm break signals
-                if is_follow and name in cau_signals:
+            # === V9.3: ĐIỀU CHỈNH WEIGHT THEO CẦU ===
+            if cau_type == 'bet_short':
+                # Bệt ngắn: ưu tiên follow, giảm break
+                if is_follow and name in cau_follow_names:
+                    weight *= 1.20
+                elif not is_follow and name in cau_break_names:
+                    weight *= 0.55
+            elif cau_type in ('bet_mid', 'bet_long'):
+                # Bệt dài: ưu tiên break, giảm follow
+                if is_follow and name in cau_follow_names:
+                    weight *= 0.50
+                elif not is_follow and name in cau_break_names:
+                    weight *= 1.30
+            elif cau_type == 'dao_1_1':
+                # Cầu đảo: phạt follow, thưởng đảo
+                if is_follow:
+                    weight *= 0.45
+                else:
                     weight *= 1.25
-                elif not is_follow and name in break_signals:
-                    # break chỉ mạnh khi cur_len lớn
-                    if cur_streak_len < 5:
-                        weight *= 0.6
-            else:
-                # Không phải bệt: phạt follow khi streak dài
-                if cur_streak_len >= 4 and is_follow:
-                    penalty = 0.65 ** (cur_streak_len - 3)
-                    weight = weight * max(penalty, 0.35)
+            elif cau_type == 'nghieng':
+                # Cầu nghiêng: theo phe đang thắng
+                if (p_tai_20 >= 0.5 and p == 'Tài') or (p_tai_20 < 0.5 and p == 'Xỉu'):
+                    weight *= 1.15
+                else:
+                    weight *= 0.80
+
+            # === V9.3: TREND ALIGNMENT ===
+            if name in trend_names and p:
+                trend_votes[p] += weight * (conf - 50)
+                trend_weight += weight
+                if trend_dir is None:
+                    trend_dir = p
 
             p_norm = max(0.51, min(conf / 100.0, 0.90))
             lr = p_norm / (1 - p_norm)
@@ -1600,9 +1881,9 @@ class MultiStrategyPredictor:
             log_odds += contrib
             total_weight += weight
 
-            if name in cau_signals and is_follow:
+            if name in cau_follow_names and is_follow:
                 cau_follow_weight += weight
-            if name in break_signals:
+            if name in cau_break_names:
                 cau_break_weight += weight
 
             sig = {'name': name, 'prediction': p,
@@ -1621,6 +1902,7 @@ class MultiStrategyPredictor:
                 'signals_strength': [],
                 'reason': f'Bẻ streak {streak}',
                 'flipped': False, 'cau': cau_type,
+                'cau_label': 'Cầu hỗn hợp',
             }
 
         scaled = log_odds / max(total_weight, 1.0) * 1.8
@@ -1632,33 +1914,46 @@ class MultiStrategyPredictor:
             pred = 'Xỉu'
             raw_conf = int((1 - p_tai) * 100)
 
-        # === V9.2: XỬ LÝ CẦU THÔNG MINH ===
-        if cau_type == 'bet':
-            # Bệt thật: ưu tiên follow khi chưa quá dài
-            if cur_streak_len <= 4:
-                # Follow nếu signals đồng thuận
-                if cau_follow_weight > cau_break_weight * 1.3:
+        # === V9.3: XỬ LÝ CẦU + XU HƯỚNG ===
+        # Xác định trend direction từ trend signals
+        trend_dir_final = None
+        if trend_votes['Tài'] > trend_votes['Xỉu'] * 1.4:
+            trend_dir_final = 'Tài'
+        elif trend_votes['Xỉu'] > trend_votes['Tài'] * 1.4:
+            trend_dir_final = 'Xỉu'
+
+        # Áp dụng theo loại cầu
+        if cau_type == 'bet_short':
+            # Bệt ngắn: follow nếu signals đồng thuận
+            if cur_streak_len <= 3 and cau_follow_weight > cau_break_weight * 1.2:
+                if pred != cur_streak_val:
                     pred = cur_streak_val
-                    raw_conf = max(raw_conf, 62)
-                elif pred != cur_streak_val and cau_follow_weight > 0.5:
-                    # Đang định bẻ nhưng bệt chưa đủ dài → đổi sang follow
-                    pred = cur_streak_val
-                    raw_conf = max(raw_conf - 3, 58)
-            elif cur_streak_len >= 7:
-                # Bệt quá dài: ưu tiên bẻ
-                opp = 'Xỉu' if cur_streak_val == 'Tài' else 'Tài'
-                if pred == cur_streak_val and cau_break_weight > 0.3:
-                    pred = opp
-                    raw_conf = max(raw_conf - 4, 58)
+                    raw_conf = max(raw_conf - 2, 58)
+        elif cau_type in ('bet_mid', 'bet_long'):
+            # Bệt dài: ưu tiên bẻ nếu có signals break hoặc trend đảo
+            opp = 'Xỉu' if cur_streak_val == 'Tài' else 'Tài'
+            if cur_streak_len >= 6 and cau_break_weight > 0.3 and pred == cur_streak_val:
+                pred = opp
+                raw_conf = max(raw_conf - 3, 58)
+            elif cur_streak_len >= 5 and trend_dir_final == opp and pred == cur_streak_val:
+                pred = opp
+                raw_conf = max(raw_conf - 2, 58)
+
         elif cau_type == 'dao_1_1':
-            # Cầu đảo: follow đảo
             expected = 'Xỉu' if cur_streak_val == 'Tài' else 'Tài'
             if cau_follow_weight > cau_break_weight:
                 pred = expected
                 raw_conf = max(raw_conf, 64)
 
-        # === V9.2: BẺ STREAK SAFETY (chỉ khi KHÔNG phải bệt) ===
-        if cau_type != 'bet' and cur_streak_len >= 6 and pred == cur_streak_val and raw_conf < 72:
+        # Trend override: nếu trend mạnh và pred ngược trend
+        if trend_dir_final and trend_weight >= 3.5:
+            if pred != trend_dir_final and raw_conf < 68:
+                pred = trend_dir_final
+                raw_conf = max(raw_conf, 60)
+
+        # Safety: bẻ streak khi không phải bệt
+        if cau_type not in ('bet_short', 'bet_mid', 'bet_long') and \
+                cur_streak_len >= 6 and pred == cur_streak_val and raw_conf < 72:
             pred = 'Xỉu' if cur_streak_val == 'Tài' else 'Tài'
             raw_conf = max(raw_conf, 58)
 
@@ -1679,10 +1974,12 @@ class MultiStrategyPredictor:
             penalty += 3
         bonus = 4 if agreement >= 0.9 and entropy < 0.6 else 0
 
-        # V9.2: bonus theo cầu
-        if cau_type == 'bet' and pred == cur_streak_val:
+        # Bonus theo cầu + trend alignment
+        if cau_type == 'bet_short' and pred == cur_streak_val:
             bonus += 3
         elif cau_type == 'dao_1_1' and pred != cur_streak_val:
+            bonus += 3
+        if trend_dir_final == pred and trend_weight >= 3.0:
             bonus += 3
 
         final_conf = max(50, min(raw_conf - penalty + bonus, 84))
@@ -1707,14 +2004,26 @@ class MultiStrategyPredictor:
         top_signals = [SIGNAL_NAMES.get(s['name'], s['name'])
                        for s in signals_sorted[:5]]
 
-        cau_label = {
-            'bet': f'Bệt {cur_streak_val}×{cur_streak_len}',
+        # Label cầu V9.3
+        cau_label_map = {
+            'bet_short': f'Bệt ngắn {cur_streak_val}×{cur_streak_len}',
+            'bet_mid': f'Bệt vừa {cur_streak_val}×{cur_streak_len}',
+            'bet_long': f'Bệt dài {cur_streak_val}×{cur_streak_len}',
             'dao_1_1': 'Cầu đảo 1-1',
             'cau_2_2': 'Cầu 2-2',
             'cau_3_3': 'Cầu 3-3',
+            'cau_1_2': 'Cầu 1-2',
+            'cau_2_1': 'Cầu 2-1',
+            'cau_3_2': 'Cầu 3-2',
+            'nghieng': 'Cầu nghiêng',
+            'bac_thang': 'Cầu bậc thang',
+            'ziczac': 'Cầu ziczac',
             'hon_hop': 'Cầu hỗn hợp',
             'unknown': 'Chưa đủ DL',
-        }.get(cau_type, cau_type)
+        }
+        cau_label = cau_label_map.get(cau_type, cau_type)
+        if trend_dir_final:
+            cau_label += f' · Trend {trend_dir_final}'
 
         result = {
             'prediction': pred, 'confidence': final_conf,
@@ -1732,7 +2041,8 @@ class MultiStrategyPredictor:
                 for s in signals_sorted[:8]
             ],
             'reason': (f"{cau_label} · {len(signals)} tín hiệu · "
-                       f"entropy={entropy:.2f} · đồng thuận={agreement:.0%}"),
+                       f"entropy={entropy:.2f} · đồng thuận={agreement:.0%}"
+                       + (f" · trend={trend_dir_final}" if trend_dir_final else "")),
             'flipped': False,
             'cau': cau_type,
             'cau_label': cau_label,
@@ -1905,7 +2215,7 @@ _load_log()
 
 
 # =====================================================================
-# HTML
+# HTML (giữ nguyên giao diện)
 # =====================================================================
 HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="vi">
@@ -2161,7 +2471,7 @@ def lc79md5():
         if not success:
             return jsonify({'error': 'Không thể kết nối MD5 API'}), 500
         if not valid:
-            return jsonify({'Id': 'LE MINH V9.2 MD5', 'Phien': None,
+            return jsonify({'Id': 'LE MINH V9.3 MD5', 'Phien': None,
                             'Du_doan': None, 'message': 'Chưa có dữ liệu'})
         last = valid[-1]
         next_phien = last['phien'] + 1
@@ -2170,7 +2480,7 @@ def lc79md5():
         stats = _honest_stats(valid)
         ai_stats = _log_stats(PREDICTION_LOG)
         return jsonify({
-            'Id': 'LE MINH V9.2 MD5',
+            'Id': 'LE MINH V9.3 MD5',
             'Phien': str(next_phien),
             'Ket_qua_truoc': last['result'].lower(),
             'Xuc_xac_truoc': last['dice'],
@@ -2204,7 +2514,7 @@ def lc79():
         if not success:
             return jsonify({'error': 'Không thể kết nối API'}), 500
         if not valid:
-            return jsonify({'Id': 'LE MINH V9.2', 'Phien': None, 'Du_doan': None})
+            return jsonify({'Id': 'LE MINH V9.3', 'Phien': None, 'Du_doan': None})
         last = valid[-1]
         next_phien = last['phien'] + 1
         pred = MultiStrategyPredictor.predict(valid, log=PREDICTION_LOG)
@@ -2212,7 +2522,7 @@ def lc79():
         stats = _honest_stats(valid)
         ai_stats = _log_stats(PREDICTION_LOG)
         return jsonify({
-            'Id': 'LE MINH V9.2',
+            'Id': 'LE MINH V9.3',
             'Phien': str(next_phien),
             'Ket_qua_truoc': last['result'].lower(),
             'Du_doan': pred['prediction'],
@@ -2250,7 +2560,7 @@ def predict():
         pred = MultiStrategyPredictor.predict(valid, log=PREDICTION_LOG)
         _log_prediction(next_phien, pred)
         return jsonify({
-            'version': 'V9.2',
+            'version': 'V9.3',
             'last_phien': last['phien'],
             'next_phien': next_phien,
             'last_result': last['result'],
@@ -2307,15 +2617,16 @@ def algo_info():
         pred = MultiStrategyPredictor.predict(valid, log=PREDICTION_LOG)
         results = [v['result'] for v in valid]
         cyc = MultiStrategyPredictor._detect_cycle(results, max_period=6, min_repeats=2)
-        cau, cur_len = MultiStrategyPredictor._detect_cau_type(results)
+        cau, cur_len, p_tai = MultiStrategyPredictor._detect_cau_type(results)
         return jsonify({
-            'version': 'V9.2',
+            'version': 'V9.3',
             'prediction': pred['prediction'],
             'confidence': pred['confidence'],
             'method': pred['method'],
             'cau': cau,
             'cau_label': pred.get('cau_label', '—'),
             'cau_streak_len': cur_len,
+            'cau_tai_ratio': round(p_tai, 3),
             'top_signals': pred.get('top_signals', []),
             'signals_strength': pred.get('signals_strength', []),
             'all_signals': pred['signals'],
