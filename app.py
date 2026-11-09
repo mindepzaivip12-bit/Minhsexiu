@@ -28,87 +28,37 @@ PATTERN_MEMORY = deque(maxlen=200)
 STRATEGY_BLACKLIST = set()
 
 SIGNAL_NAMES = {
-    'markov3':      'Markov bậc 3',
-    'markov2':      'Markov bậc 2',
-    'markov1':      'Markov bậc 1',
-    'streak':       'Bẻ chuỗi',
-    'pattern':      'Khớp mẫu',
-    'weighted':     'Tần suất',
-    'dice':         'Lệch xúc xắc',
-    'alternation':  'Cầu 1-1',
-    'momentum':     'Đà',
-    'recency':      'Gần đây',
-    'invert':       'Đảo cầu',
-    'trend':        'Xu hướng',
-    'bias_run':     'Lệch 12 phiên',
-    'follow':       'Theo cầu',
-    'exhaust':      'Cầu kiệt',
-    'dominance':    'Lệch cực đoan',
-    'cycle_1_1':    'Chu kỳ 1-1',
-    'cycle_2_2':    'Chu kỳ 2-2',
-    'cycle_3_3':    'Chu kỳ 3-3',
-    'cycle_1_2':    'Chu kỳ 1-2',
-    'cycle_2_1':    'Chu kỳ 2-1',
-    'cycle_1_3':    'Chu kỳ 1-3',
-    'cycle_3_1':    'Chu kỳ 3-1',
-    'cycle_2_3':    'Chu kỳ 2-3',
-    'cycle_3_2':    'Chu kỳ 3-2',
-    'cycle_123':    'Chu kỳ 1-2-3',
-    'cycle_321':    'Chu kỳ 3-2-1',
-    'cycle_346':    'Chu kỳ 3-4-6',
-    'cycle_112':    'Chu kỳ 1-1-2',
-    'cycle_212':    'Chu kỳ 2-1-2',
-    'cycle_122':    'Chu kỳ 1-2-2',
-    'cycle_221':    'Chu kỳ 2-2-1',
-    'cycle_1234':   'Chu kỳ 1-2-3-4',
-    'cycle_2341':   'Chu kỳ 2-3-4-1',
-    'cycle_3456':   'Chu kỳ 3-4-5-6',
-    'cycle_4_4':    'Chu kỳ 4-4',
-    'auto_cycle':   'Chu kỳ tự động',
-    'pattern_sim':  'Tương đồng mẫu',
-    'regime':       'Chế độ thị trường',
-    'flip_break':   'Bẻ cầu đảo',
-    'run_break':    'Bẻ run dài',
-    'ngram_2':      'N-gram 2',
-    'ngram_3':      'N-gram 3',
-    'ngram_4':      'N-gram 4',
-    'ngram_5':      'N-gram 5',
-    'mirror_pattern':   'Đối xứng đảo',
-    'reverse_trend':    'Đảo xu hướng',
-    'palindrome_check': 'Cầu đối xứng',
-    'bayes_recent':     'Bayes gần đây',
-    'chi_square':       'Kiểm định lệch',
-    'runs_prediction':  'Chuỗi run-length',
-    'transition_matrix': 'Ma trận chuyển',
-    'double_break':     'Bẻ đôi',
-    'signal_consensus': 'Đồng thuận tín hiệu',
-    'signal_dissent':   'Phản biện tín hiệu',
-    'entropy_adaptive': 'Entropy thích ứng',
-    'streak_maturity':  'Độ chín streak',
-    'time_pattern':     'Mẫu thời gian',
-    'volatility':       'Biến động',
-    'cusum':            'CUSUM',
-    'kelly_optimal':    'Kelly tối ưu',
-    'multi_window':     'Đa cửa sổ',
-    'rsi_signal':       'RSI cầu',
-    'fibonacci_break':  'Fibonacci bẻ',
-    'zscore_extreme':   'Z-Score cực trị',
-    'harmonic_pattern': 'Mẫu hài hòa',
-    'wavelet_trend':    'Xu hướng sóng',
-    'seasonal_cycle':   'Chu kỳ mùa',
-    'markov_weighted':  'Markov trọng số',
-    'ensemble_boost':   'Ensemble boost',
-    'decision_tree':    'Cây quyết định',
-    'streak_aware':     'Streak-aware',
-    'tier2_boost':      'Tier-2 boost',
-    'volatility_regime': 'Regime biến động',
-    'cascade_pattern':  'Mẫu tầng',
-    'regime_router':    'Định tuyến chế độ',
-    'pattern_memory':   'Bộ nhớ mẫu',
-    'anti_streak':      'Chống chuỗi dài',
-    'dice_parity':      'Chẵn lẻ xúc xắc',
-    'streak_balance':   'Cân bằng streak',
-    'break_priority':   'Ưu tiên bẻ',
+    'markov3': 'Markov bậc 3', 'markov2': 'Markov bậc 2', 'markov1': 'Markov bậc 1',
+    'streak': 'Bẻ chuỗi', 'pattern': 'Khớp mẫu', 'weighted': 'Tần suất',
+    'dice': 'Lệch xúc xắc', 'alternation': 'Cầu 1-1', 'momentum': 'Đà',
+    'recency': 'Gần đây', 'invert': 'Đảo cầu', 'trend': 'Xu hướng',
+    'bias_run': 'Lệch 12 phiên', 'follow': 'Theo cầu', 'exhaust': 'Cầu kiệt',
+    'dominance': 'Lệch cực đoan', 'auto_cycle': 'Chu kỳ tự động',
+    'pattern_sim': 'Tương đồng mẫu', 'regime': 'Chế độ thị trường',
+    'flip_break': 'Bẻ cầu đảo', 'run_break': 'Bẻ run dài',
+    'ngram_2': 'N-gram 2', 'ngram_3': 'N-gram 3', 'ngram_4': 'N-gram 4', 'ngram_5': 'N-gram 5',
+    'mirror_pattern': 'Đối xứng đảo', 'reverse_trend': 'Đảo xu hướng',
+    'palindrome_check': 'Cầu đối xứng', 'bayes_recent': 'Bayes gần đây',
+    'chi_square': 'Kiểm định lệch', 'runs_prediction': 'Chuỗi run-length',
+    'transition_matrix': 'Ma trận chuyển', 'signal_consensus': 'Đồng thuận tín hiệu',
+    'signal_dissent': 'Phản biện tín hiệu', 'entropy_adaptive': 'Entropy thích ứng',
+    'streak_maturity': 'Độ chín streak', 'time_pattern': 'Mẫu thời gian',
+    'volatility': 'Biến động', 'cusum': 'CUSUM', 'kelly_optimal': 'Kelly tối ưu',
+    'multi_window': 'Đa cửa sổ', 'rsi_signal': 'RSI cầu', 'fibonacci_break': 'Fibonacci bẻ',
+    'zscore_extreme': 'Z-Score cực trị', 'harmonic_pattern': 'Mẫu hài hòa',
+    'wavelet_trend': 'Xu hướng sóng', 'seasonal_cycle': 'Chu kỳ mùa',
+    'markov_weighted': 'Markov trọng số', 'ensemble_boost': 'Ensemble boost',
+    'decision_tree': 'Cây quyết định',
+    # V9.2 NEW
+    'cau_detector': 'Nhận diện cầu',
+    'follow_bet': 'Theo bệt',
+    'follow_bet_strong': 'Theo bệt mạnh',
+    'break_bet_smart': 'Bẻ bệt thông minh',
+    'follow_dao': 'Theo cầu đảo',
+    'follow_22': 'Theo cầu 2-2',
+    'follow_33': 'Theo cầu 3-3',
+    'cau_momentum': 'Đà cầu',
+    'reversal_signal': 'Tín hiệu đảo chiều',
 }
 
 
@@ -165,28 +115,11 @@ def _entropy(results):
     return h
 
 
-def _detect_regime(results):
-    if len(results) < 12:
-        return 'unknown'
-    r = results[-20:] if len(results) >= 20 else results
-    flips = sum(1 for i in range(1, len(r)) if r[i] != r[i - 1])
-    flip_ratio = flips / (len(r) - 1)
-    runs = _run_lengths(r)
-    avg_run = sum(runs) / len(runs) if runs else 1.0
-
-    if flip_ratio >= 0.65:
-        return 'alternating'
-    if flip_ratio <= 0.30 or avg_run >= 2.5:
-        return 'streaky'
-    return 'mixed'
-
-
 # =====================================================================
-# PREDICTOR V9.1
+# PREDICTOR V9.2 - CAU ADAPTIVE
 # =====================================================================
 class MultiStrategyPredictor:
     _STRATEGY_TRACK = defaultdict(lambda: {'hit': 0, 'miss': 0, 'last_len': 0})
-    _REGIME_TRACK = defaultdict(lambda: {'hit': 0, 'miss': 0})
 
     @staticmethod
     def _deterministic_choice(options, seed_str):
@@ -213,559 +146,559 @@ class MultiStrategyPredictor:
         seg = seq[-win:]
         return sum(1 for x in seg if x == 'Tài') / len(seg)
 
-    # ==================== CYCLE ====================
-    @staticmethod
-    def _detect_cycle(r, max_period=6, min_repeats=2):
-        if len(r) < 8:
-            return None
-        best = None
-        for period in range(2, min(max_period * 2, len(r) // min_repeats) + 1):
-            needed = period * min_repeats
-            if len(r) < needed:
-                break
-            tail = r[-needed:]
-            pattern = tail[-period:]
-            match = True
-            for k in range(min_repeats):
-                chunk = tail[k * period:(k + 1) * period]
-                if chunk != pattern:
-                    match = False
-                    break
-            if match:
-                hits, total = 0, 0
-                for i in range(len(r) - period):
-                    if r[i] == pattern[i % period]:
-                        hits += 1
-                    total += 1
-                if total >= 6 and hits / total >= 0.65:
-                    phase = len(r) % period
-                    score = hits / total
-                    if best is None or score > best[0]:
-                        best = (score, period, phase, pattern)
-        if not best:
-            return None
-        _, period, phase, pattern = best
-        return {'period': period, 'phase': phase, 'pattern': pattern,
-                'next': pattern[phase % period]}
-
+    # ==================== V9.2: NHẬN DIỆN CẦU ====================
     @classmethod
-    def _cycle_signal(cls, r, sizes_target=None):
-        if sizes_target is None:
-            return None, 0, 0
-        period_len = sum(sizes_target)
-        if len(r) < period_len * 2 + 2:
-            return None, 0, 0
-        runs = _run_lengths(r)
-        if len(runs) < 2:
-            return None, 0, 0
-        n_cycles = min(len(runs) // len(sizes_target), 4)
-        if n_cycles < 2:
-            return None, 0, 0
-        matched, total_checks = 0, 0
-        for c in range(n_cycles):
-            start = len(runs) - (c + 1) * len(sizes_target)
-            end = start + len(sizes_target)
-            if start < 0:
-                break
-            chunk = runs[start:end]
-            if c == 0:
-                for i in range(min(len(chunk) - 1, len(sizes_target) - 1)):
-                    total_checks += 1
-                    if chunk[i] == sizes_target[i]:
-                        matched += 1
-                    else:
-                        break
-            else:
-                for i in range(len(chunk)):
-                    total_checks += 1
-                    if chunk[i] == sizes_target[i]:
-                        matched += 1
-                    else:
-                        break
-        if total_checks < 3:
-            return None, 0, 0
-        score = matched / total_checks
-        if score < 0.75:
-            return None, 0, 0
-        cycle_pos = len(runs) % len(sizes_target)
-        cur_run_len, cur_val = cls._tail_run(r)
-        expected_size = sizes_target[(cycle_pos - 1) % len(sizes_target)]
-        if cur_run_len < expected_size:
-            conf = min(58 + int(score * 25) + (expected_size - cur_run_len) * 2, 82)
-            weight = 1.4 + score * 0.4
-            return cur_val, conf, min(weight, 1.9)
-        else:
-            next_val = 'Xỉu' if cur_val == 'Tài' else 'Tài'
-            conf = min(58 + int(score * 25) + (cur_run_len - expected_size) * 2, 82)
-            weight = 1.4 + score * 0.4
-            return next_val, conf, min(weight, 1.9)
-
-    @classmethod
-    def _auto_cycle_signal(cls, r):
+    def _detect_cau_type(cls, r):
+        """
+        Phân loại cầu:
+        - 'bet': cầu bệt (run >= 3, có ít nhất 2 run dài)
+        - 'dao_1_1': cầu đảo liên tục
+        - 'cau_2_2': cầu 2-2 ổn định
+        - 'cau_3_3': cầu 3-3 ổn định
+        - 'hon_hop': hỗn hợp
+        """
         if len(r) < 12:
-            return None, 0, 0
-        cyc = cls._detect_cycle(r, max_period=6, min_repeats=2)
-        if not cyc:
-            return None, 0, 0
-        next_val = cyc['next']
-        base = 60 if cyc['period'] <= 3 else 55
-        conf = min(base + max(0, (6 - cyc['period'])) * 3, 78)
-        weight = 1.3 + (6 - min(cyc['period'], 6)) * 0.08
-        return next_val, conf, round(weight, 2)
+            return 'unknown', 0
 
-    @classmethod
-    def _pattern_similarity(cls, r):
-        if len(r) < 15:
-            return None, 0, 0
-        for wlen in (8, 7, 6, 5, 4):
-            if len(r) < wlen + 6:
-                continue
-            cur = r[-wlen:]
-            matches = []
-            for i in range(len(r) - wlen):
-                window = r[i:i + wlen]
-                sim = sum(1 for a, b in zip(cur, window) if a == b) / wlen
-                if sim >= 0.85 and i + wlen < len(r):
-                    matches.append((sim, r[i + wlen]))
-            if len(matches) >= 3:
-                weighted = {'Tài': 0.0, 'Xỉu': 0.0}
-                for sim, nv in matches:
-                    weighted[nv] += sim
-                total = weighted['Tài'] + weighted['Xỉu']
-                if total == 0:
-                    continue
-                p_tai = weighted['Tài'] / total
-                if p_tai >= 0.62:
-                    return 'Tài', min(int(p_tai * 100) + wlen, 85), 1.25
-                if p_tai <= 0.38:
-                    return 'Xỉu', min(int((1 - p_tai) * 100) + wlen, 85), 1.25
-        return None, 0, 0
-
-    @classmethod
-    def _flip_break(cls, valid):
-        if len(valid) < 10:
-            return None, 0, 0
-        r = [v['result'] for v in valid]
-        cyc = cls._detect_cycle(r, max_period=5, min_repeats=2)
-        if not cyc:
-            return None, 0, 0
-        if 2 <= cyc['period'] <= 4:
-            recent = r[-8:]
-            flips = sum(1 for i in range(1, len(recent))
-                        if recent[i] != recent[i - 1])
-            if flips >= 6:
-                next_val = 'Xỉu' if cyc['next'] == 'Tài' else 'Tài'
-                return next_val, 65, 1.05
-        return None, 0, 0
-
-    @classmethod
-    def _run_break(cls, valid):
-        if len(valid) < 8:
-            return None, 0, 0
-        r = [v['result'] for v in valid]
+        runs = _run_lengths(r[-25:])
         cur_len, cur_val = cls._tail_run(r)
-        if cur_len < 5 or cur_len > 10:
+
+        # Đảo 1-1
+        recent = r[-14:]
+        flips = sum(1 for i in range(1, len(recent)) if recent[i] != recent[i - 1])
+        flip_ratio = flips / (len(recent) - 1)
+
+        # Cầu bệt: run hiện tại dài VÀ có tiền lệ bệt trong lịch sử
+        if len(runs) >= 3:
+            long_runs = sum(1 for x in runs[:-1] if x >= 3)
+            if cur_len >= 3 and long_runs >= 1:
+                return 'bet', cur_len
+            if cur_len >= 5:
+                return 'bet', cur_len
+
+        if flip_ratio >= 0.72:
+            return 'dao_1_1', 0
+
+        # Cầu 2-2 / 3-3: pattern runs ổn định
+        if len(runs) >= 5:
+            recent_runs = runs[-6:]
+            two_count = sum(1 for x in recent_runs if x == 2)
+            three_count = sum(1 for x in recent_runs if x == 3)
+            if two_count >= 4:
+                return 'cau_2_2', 0
+            if three_count >= 4:
+                return 'cau_3_3', 0
+
+        return 'hon_hop', 0
+
+    # ==================== V9.2: SIGNALS BẮT CẦU ====================
+    @classmethod
+    def _cau_detector(cls, valid):
+        """Signal meta - chỉ ra cầu hiện tại."""
+        if len(valid) < 12:
             return None, 0, 0
-        runs = _run_lengths(r)
-        breaks, totals = 0, 0
-        idx = 0
-        for rlen in runs[:-1]:
-            if rlen >= 5:
-                totals += 1
-                if idx + rlen < len(r):
-                    breaks += 1
-            idx += rlen
-        p = breaks / totals if totals > 0 else 0.5
-        if p >= 0.55:
-            next_val = 'Xỉu' if cur_val == 'Tài' else 'Tài'
-            conf = min(56 + int(p * 20) + (cur_len - 5) * 2, 78)
-            return next_val, conf, 1.15
+        r = [v['result'] for v in valid]
+        cau, cur_len = cls._detect_cau_type(r)
+        if cau == 'unknown':
+            return None, 0, 0
+        # Signal này không predict, chỉ log
         return None, 0, 0
 
     @classmethod
-    def _regime_signal(cls, valid):
+    def _follow_bet(cls, valid):
+        """V9.2: THEO BỆT khi bệt đã ổn định."""
         if len(valid) < 20:
             return None, 0, 0
-        r = [v['result'] for v in valid[-20:]]
-        alt = sum(1 for i in range(1, len(r)) if r[i] != r[i - 1]) / (len(r) - 1)
-        runs = _run_lengths(r)
-        avg_run = sum(runs) / len(runs)
-        p_tai = cls._seg_ratio(r, 20)
-        if avg_run >= 2.2 and alt <= 0.45:
-            if p_tai >= 0.55:
-                return 'Tài', 58, 0.85
-            if p_tai <= 0.45:
-                return 'Xỉu', 58, 0.85
-        if alt >= 0.70 and avg_run <= 1.6:
-            return ('Xỉu' if r[-1] == 'Tài' else 'Tài'), 62, 1.10
+        r = [v['result'] for v in valid]
+        cau, cur_len = cls._detect_cau_type(r)
+
+        if cau != 'bet':
+            return None, 0, 0
+
+        cur_val = r[-1]
+        runs = _run_lengths(r[-40:])
+
+        # Đếm số run trước đó có cùng độ dài ±1 với run hiện tại
+        same_len_runs = sum(1 for x in runs[:-1] if abs(x - cur_len) <= 1)
+        total_prev_runs = len(runs) - 1
+
+        if total_prev_runs == 0:
+            return None, 0, 0
+
+        ratio = same_len_runs / total_prev_runs
+
+        # Cầu bệt THẬT: các run trước cũng dài tương tự
+        if ratio >= 0.5 or cur_len <= 4:
+            conf = min(60 + int(ratio * 20) + min(cur_len, 6) * 2, 82)
+            weight = 1.3 + ratio * 0.5
+            return cur_val, conf, min(weight, 1.9)
+
+        # Cầu bệt SẮP gãy: run hiện tại đã dài hơn các run trước nhiều
+        max_prev = max(runs[:-1]) if len(runs) > 1 else cur_len
+        if cur_len >= max_prev + 2:
+            return None, 0, 0  # để signal bẻ xử lý
+
+        return cur_val, 60, 1.2
+
+    @classmethod
+    def _follow_bet_strong(cls, valid):
+        """V9.2: THEO BỆT MẠNH - chỉ khi bệt đã kéo dài RẤT ổn định."""
+        if len(valid) < 30:
+            return None, 0, 0
+        r = [v['result'] for v in valid]
+        cau, cur_len = cls._detect_cau_type(r)
+
+        if cau != 'bet' or cur_len < 4:
+            return None, 0, 0
+
+        cur_val = r[-1]
+        runs = _run_lengths(r[-50:])
+
+        # Yêu cầu: ít nhất 3 run trước đó đều >= 3
+        long_prev = sum(1 for x in runs[:-1] if x >= 3)
+        if long_prev < 3:
+            return None, 0, 0
+
+        # Và run hiện tại chưa vượt quá max run trước (chưa gãy)
+        max_prev = max(runs[:-1]) if len(runs) > 1 else cur_len
+        if cur_len <= max_prev + 1:
+            conf = min(66 + long_prev * 2, 84)
+            return cur_val, conf, 1.7
+
         return None, 0, 0
 
-    # ==================== STREAK-AWARE (đã cân bằng lại) ====================
     @classmethod
-    def _streak_aware(cls, valid):
+    def _break_bet_smart(cls, valid):
+        """V9.2: BẺ BỆT THÔNG MINH - chỉ bẻ khi có dấu hiệu gãy."""
+        if len(valid) < 20:
+            return None, 0, 0
+        r = [v['result'] for v in valid]
+        cau, cur_len = cls._detect_cau_type(r)
+
+        if cau != 'bet' or cur_len < 3:
+            return None, 0, 0
+
+        cur_val = r[-1]
+        opp = 'Xỉu' if cur_val == 'Tài' else 'Tài'
+        runs = _run_lengths(r[-40:])
+
+        max_prev = max(runs[:-1]) if len(runs) > 1 else 0
+
+        # Chỉ bẻ khi:
+        # 1. Run hiện tại VƯỢT max trước đó (đang phá kỷ lục)
+        # 2. HOẶC run hiện tại >= 6 (quá dài)
+        # 3. HOẶC sắp gãy theo Fibonacci
+        should_break = False
+        conf = 55
+        weight = 1.0
+
+        if cur_len > max_prev and cur_len >= 4:
+            should_break = True
+            conf = min(62 + (cur_len - max_prev) * 3, 78)
+            weight = 1.2
+
+        if cur_len >= 6:
+            should_break = True
+            conf = max(conf, min(64 + (cur_len - 6) * 2, 80))
+            weight = max(weight, 1.3)
+
+        if cur_len in (5, 8, 13):  # Fibonacci
+            should_break = True
+            conf = max(conf, 66)
+            weight = max(weight, 1.15)
+
+        if should_break:
+            return opp, conf, weight
+
+        return None, 0, 0
+
+    @classmethod
+    def _follow_dao(cls, valid):
+        """V9.2: THEO CẦU ĐẢO 1-1."""
+        if len(valid) < 14:
+            return None, 0, 0
+        r = [v['result'] for v in valid]
+        cau, _ = cls._detect_cau_type(r)
+
+        if cau != 'dao_1_1':
+            return None, 0, 0
+
+        recent = r[-14:]
+        flips = sum(1 for i in range(1, len(recent)) if recent[i] != recent[i - 1])
+        ratio = flips / (len(recent) - 1)
+
+        nxt = 'Xỉu' if r[-1] == 'Tài' else 'Tài'
+        conf = min(60 + int(ratio * 25), 84)
+        weight = 1.35 + (ratio - 0.72) * 0.5
+        return nxt, conf, min(weight, 1.9)
+
+    @classmethod
+    def _follow_22(cls, valid):
+        """V9.2: THEO CẦU 2-2."""
+        if len(valid) < 20:
+            return None, 0, 0
+        r = [v['result'] for v in valid]
+        cau, _ = cls._detect_cau_type(r)
+
+        if cau != 'cau_2_2':
+            return None, 0, 0
+
+        runs = _run_lengths(r)
+        cur_len, cur_val = cls._tail_run(r)
+
+        if cur_len == 1:
+            return cur_val, 62, 1.35
+        if cur_len == 2:
+            opp = 'Xỉu' if cur_val == 'Tài' else 'Tài'
+            return opp, 64, 1.4
+        return None, 0, 0
+
+    @classmethod
+    def _follow_33(cls, valid):
+        """V9.2: THEO CẦU 3-3."""
+        if len(valid) < 24:
+            return None, 0, 0
+        r = [v['result'] for v in valid]
+        cau, _ = cls._detect_cau_type(r)
+
+        if cau != 'cau_3_3':
+            return None, 0, 0
+
+        cur_len, cur_val = cls._tail_run(r)
+        opp = 'Xỉu' if cur_val == 'Tài' else 'Tài'
+
+        if cur_len <= 2:
+            return cur_val, 60, 1.25
+        if cur_len == 3:
+            return opp, 66, 1.4
+        return None, 0, 0
+
+    @classmethod
+    def _cau_momentum(cls, valid):
+        """V9.2: Đà cầu - follow khi cầu đang chạy mạnh."""
         if len(valid) < 15:
             return None, 0, 0
         r = [v['result'] for v in valid]
-        cur_len, cur_val = cls._tail_run(r)
-        # V9.1: chỉ follow khi streak CỰC NGẮN (1-2)
-        if cur_len == 1:
-            prev_run, prev_val = cls._tail_run(r[:-1])
-            if prev_run >= 4:
-                # streak trước dài, nay vừa bẻ → khả năng đảo tiếp
-                return cur_val, 60, 1.05
-            return None, 0, 0
-        if cur_len == 2:
-            # V9.1: KHÔNG follow nữa, chỉ quan sát
-            return None, 0, 0
-        if cur_len >= 5:
-            # streak dài → bẻ mạnh
-            opp = 'Xỉu' if cur_val == 'Tài' else 'Tài'
-            conf = min(62 + (cur_len - 5) * 3, 78)
-            return opp, conf, 1.20
+        cau, cur_len = cls._detect_cau_type(r)
+
+        if cau == 'bet' and cur_len >= 2:
+            return r[-1], min(58 + cur_len * 3, 76), 1.1
+
+        if cau == 'dao_1_1':
+            return ('Xỉu' if r[-1] == 'Tài' else 'Tài'), 62, 1.2
+
         return None, 0, 0
 
     @classmethod
-    def _tier2_boost(cls, valid):
-        if len(valid) < 20:
-            return None, 0, 0
-        t2 = [
-            cls._markov_order1(valid),
-            cls._weighted_freq(valid),
-            cls._recency_streak(valid),
-            cls._momentum(valid),
-        ]
-        votes = {'Tài': 0.0, 'Xỉu': 0.0}
-        count = 0
-        for p, c, w in t2:
-            if p:
-                votes[p] += c * w
-                count += 1
-        if count < 3:
-            return None, 0, 0
-        total = votes['Tài'] + votes['Xỉu']
-        if total == 0:
-            return None, 0, 0
-        if votes['Tài'] / total >= 0.70:
-            return 'Tài', min(int(votes['Tài'] / total * 100), 74), 0.85
-        if votes['Xỉu'] / total >= 0.70:
-            return 'Xỉu', min(int(votes['Xỉu'] / total * 100), 74), 0.85
-        return None, 0, 0
-
-    @classmethod
-    def _volatility_regime(cls, valid):
+    def _reversal_signal(cls, valid):
+        """V9.2: Tín hiệu đảo chiều - phát hiện cầu sắp gãy."""
         if len(valid) < 25:
             return None, 0, 0
-        r = [v['result'] for v in valid[-20:]]
-        flips = sum(1 for i in range(1, len(r)) if r[i] != r[i - 1])
-        flip_ratio = flips / (len(r) - 1)
-        p_tai = cls._seg_ratio(r, 20)
-        if flip_ratio >= 0.75:
-            return ('Xỉu' if r[-1] == 'Tài' else 'Tài'), 66, 1.15
-        if flip_ratio <= 0.25:
-            cur_len, cur_val = cls._tail_run(r)
-            # V9.1: đảo ngưỡng - streak dài thì bẻ
-            if cur_len >= 4:
-                opp = 'Xỉu' if cur_val == 'Tài' else 'Tài'
-                return opp, 64, 1.10
-            if cur_len <= 1:
-                return cur_val, 58, 0.85
-        if 0.40 <= flip_ratio <= 0.60:
-            if p_tai >= 0.60:
-                return 'Tài', 58, 0.95
-            if p_tai <= 0.40:
-                return 'Xỉu', 58, 0.95
-        return None, 0, 0
-
-    @classmethod
-    def _cascade_pattern(cls, valid):
-        if len(valid) < 20:
-            return None, 0, 0
         r = [v['result'] for v in valid]
-        results = []
-        for scale in (2, 3, 5, 8):
-            if len(r) < scale + 5:
-                continue
-            pat = tuple(r[-scale:])
-            matches = []
-            for i in range(len(r) - scale):
-                if tuple(r[i:i + scale]) == pat and i + scale < len(r):
-                    matches.append(r[i + scale])
-            if len(matches) >= 2:
-                c = Counter(matches)
-                top, cnt = c.most_common(1)[0]
-                ratio = cnt / len(matches)
-                if ratio >= 0.70:
-                    results.append((scale, top, ratio))
-        if not results:
-            return None, 0, 0
-        results.sort(key=lambda x: x[0], reverse=True)
-        scale, top, ratio = results[0]
-        conf = min(55 + int(ratio * 25) + scale * 2, 82)
-        weight = 1.05 + (scale / 10)
-        return top, conf, min(weight, 1.6)
+        cau, cur_len = cls._detect_cau_type(r)
 
-    # ==================== V9.1 NEW: BALANCE ====================
-    @classmethod
-    def _streak_balance(cls, valid):
-        """V9.1: Cân bằng streak - phát hiện bias bệt và bẻ."""
-        if len(valid) < 15:
-            return None, 0, 0
-        r = [v['result'] for v in valid]
-        cur_len, cur_val = cls._tail_run(r)
-        # Nếu streak hiện tại >= 3, dự đoán bẻ (chống bắt bệt)
-        if cur_len >= 3:
-            opp = 'Xỉu' if cur_val == 'Tài' else 'Tài'
-            # Streak 3-4: bẻ nhẹ
-            if cur_len <= 4:
-                return opp, 58, 1.05
-            # Streak 5-6: bẻ vừa
-            if cur_len <= 6:
-                return opp, 64, 1.15
-            # Streak >= 7: bẻ mạnh
-            return opp, 70, 1.25
-        return None, 0, 0
-
-    @classmethod
-    def _break_priority(cls, valid):
-        """V9.1: Ưu tiên bẻ khi thị trường streaky kéo dài."""
-        if len(valid) < 20:
-            return None, 0, 0
-        r = [v['result'] for v in valid]
-        cur_len, cur_val = cls._tail_run(r)
-        runs = _run_lengths(r[-30:])
-        if len(runs) < 3:
-            return None, 0, 0
-        avg_run = sum(runs) / len(runs)
-        # Nếu run trung bình cao (bệt nhiều) và streak hiện tại đã dài
-        if avg_run >= 2.2 and cur_len >= 3:
-            opp = 'Xỉu' if cur_val == 'Tài' else 'Tài'
-            conf = min(60 + int((avg_run - 2) * 5) + (cur_len - 3) * 2, 76)
-            return opp, conf, 1.15
-        return None, 0, 0
-
-    @classmethod
-    def _regime_router(cls, valid):
-        """V9.1: định tuyến đã cân bằng lại - không follow bệt nữa."""
-        if len(valid) < 20:
-            return None, 0, 0
-        r = [v['result'] for v in valid]
-        regime = _detect_regime(r)
-
-        if regime == 'alternating':
-            p1, c1, w1 = cls._alternation(valid, window=14)
-            p2, c2, w2 = cls._invert_cau(valid)
-            if p1 and p2 and p1 == p2:
-                return p1, min(c1 + 3, 82), 1.4
-            if p1:
-                return p1, c1, 1.15
-            if p2:
-                return p2, c2, 1.15
-
-        elif regime == 'streaky':
-            # V9.1: ƯU TIÊN BẺ, không follow
-            cur_len, cur_val = cls._tail_run(r)
-            if cur_len >= 3:
-                opp = 'Xỉu' if cur_val == 'Tài' else 'Tài'
-                conf = min(60 + (cur_len - 3) * 3, 78)
-                return opp, conf, 1.25
-            # streak ngắn (1-2): đợi, không vote
+        if cau != 'bet':
             return None, 0, 0
 
-        else:  # mixed
-            p, c, w = cls._ensemble_boost(valid)
-            if p:
-                return p, c, w * 0.95
-
-        return None, 0, 0
-
-    @classmethod
-    def _pattern_memory_signal(cls, valid):
-        """V9.1: chỉ dùng khi pattern được xác nhận mạnh (>=5 lần)."""
-        if len(PATTERN_MEMORY) < 5 or len(valid) < 15:
-            return None, 0, 0
-        r = [v['result'] for v in valid]
-        best = None
-        for entry in list(PATTERN_MEMORY)[-80:]:
-            if entry.get('hits', 0) < 5:  # V9.1: yêu cầu >= 5 lần khớp
-                continue
-            if entry.get('ratio', 0) < 0.7:
-                continue
-            pat = entry['pattern']
-            plen = len(pat)
-            if plen > len(r):
-                continue
-            if tuple(r[-min(plen, 5):]) == pat[-min(plen, 5):]:
-                score = entry['hits'] * entry['ratio']
-                if best is None or score > best[0]:
-                    best = (score, entry['next'])
-        if best and best[0] >= 3.5:
-            conf = min(58 + int(best[0] * 3), 80)
-            return best[1], conf, 1.15
-        return None, 0, 0
-
-    @classmethod
-    def _anti_streak(cls, valid):
-        if len(valid) < 20:
-            return None, 0, 0
-        r = [v['result'] for v in valid]
-        cur_len, cur_val = cls._tail_run(r)
+        cur_val = r[-1]
         runs = _run_lengths(r[-40:])
-        if len(runs) < 4:
-            return None, 0, 0
-        prev_max = max(runs[:-1]) if len(runs) > 1 else cur_len
-        if cur_len >= max(prev_max, 3):
+        max_prev = max(runs[:-1]) if len(runs) > 1 else 0
+
+        # Đảo chiều khi: run hiện tại = max_prev + 1 (vừa phá kỷ lục)
+        # và có ít nhất 2 lần trước đó bị gãy ở độ dài này
+        if cur_len >= max_prev and max_prev >= 3:
             opp = 'Xỉu' if cur_val == 'Tài' else 'Tài'
-            conf = min(58 + (cur_len - prev_max) * 3, 76)
-            return opp, conf, 1.10
+            conf = min(62 + (cur_len - max_prev) * 4, 78)
+            return opp, conf, 1.15
+
         return None, 0, 0
 
-    @classmethod
-    def _dice_parity(cls, valid):
-        recent = [v for v in valid[-30:] if v.get('total') is not None]
-        if len(recent) < 15:
+    # ==================== CÁC SIGNAL CŨ (giữ nguyên) ====================
+    @staticmethod
+    def _markov_order3(valid):
+        if len(valid) < 25:
             return None, 0, 0
-        last_totals = [v.get('total', 0) for v in recent[-5:]]
-        even_count = sum(1 for t in last_totals if t % 2 == 0)
-        if even_count >= 4:
-            return 'Xỉu', 56, 0.85
-        if even_count <= 1:
-            return 'Tài', 56, 0.85
-        return None, 0, 0
-
-    # ==================== HARMONIC / WAVELET ====================
-    @classmethod
-    def _harmonic_pattern(cls, r):
-        if len(r) < 12:
-            return None, 0, 0
-        trans = defaultdict(lambda: {'Tài': 0.0, 'Xỉu': 0.0})
-        for i in range(len(r) - 2):
-            key = (r[i], r[i + 1])
-            w = 1.0 + (i / len(r)) * 0.5
-            trans[key][r[i + 2]] += w
-        key = (r[-2], r[-1])
+        trans = defaultdict(lambda: {'Tài': 0, 'Xỉu': 0})
+        for i in range(len(valid) - 3):
+            key = (valid[i]['result'], valid[i + 1]['result'], valid[i + 2]['result'])
+            trans[key][valid[i + 3]['result']] += 1
+        key = (valid[-3]['result'], valid[-2]['result'], valid[-1]['result'])
         counts = trans[key]
         total = counts['Tài'] + counts['Xỉu']
         if total < 3:
             return None, 0, 0
-        p_tai = counts['Tài'] / total
-        if p_tai >= 0.65:
-            return 'Tài', min(int(p_tai * 100), 82), 1.20
-        if p_tai <= 0.35:
-            return 'Xỉu', min(int((1 - p_tai) * 100), 82), 1.20
+        p_tai = (counts['Tài'] + 1) / (total + 2)
+        if p_tai > 0.65:
+            return 'Tài', int(p_tai * 100), 1.45
+        if p_tai < 0.35:
+            return 'Xỉu', int((1 - p_tai) * 100), 1.45
         return None, 0, 0
 
-    @classmethod
-    def _wavelet_trend(cls, valid):
-        if len(valid) < 30:
+    @staticmethod
+    def _markov_order2(valid, window=None):
+        if len(valid) < 15:
             return None, 0, 0
-        r = [v['result'] for v in valid]
-        p_short = cls._seg_ratio(r, 5)
-        p_medium = cls._seg_ratio(r, 15)
-        p_long = cls._seg_ratio(r, 30)
-        if p_short > 0.65 and p_medium > 0.58 and p_long > 0.52:
-            conf = min(60 + int((p_short - 0.6) * 100), 80)
-            return 'Tài', conf, 1.15
-        if p_short < 0.35 and p_medium < 0.42 and p_long < 0.48:
-            conf = min(60 + int((0.4 - p_short) * 100), 80)
-            return 'Xỉu', conf, 1.15
-        if p_short > 0.7 and p_long < 0.45:
-            return 'Xỉu', 63, 1.10
-        if p_short < 0.3 and p_long > 0.55:
-            return 'Tài', 63, 1.10
-        return None, 0, 0
-
-    @classmethod
-    def _seasonal_cycle(cls, r):
-        if len(r) < 40:
-            return None, 0, 0
-        for period in (12, 10, 14, 15, 11, 13):
-            if len(r) < period * 3:
-                continue
-            matches = []
-            target_pos = len(r) % period
-            for i in range(len(r) - period):
-                if i % period == target_pos and i < len(r) - 1:
-                    matches.append(r[i])
-            if len(matches) >= 3:
-                c = Counter(matches)
-                top, cnt = c.most_common(1)[0]
-                ratio = cnt / len(matches)
-                if ratio >= 0.70:
-                    conf = min(55 + int(ratio * 20), 78)
-                    return top, conf, 1.05
-        return None, 0, 0
-
-    @classmethod
-    def _markov_weighted(cls, valid):
-        if len(valid) < 25:
-            return None, 0, 0
-        r = [v['result'] for v in valid]
-        trans = defaultdict(lambda: {'Tài': 0.0, 'Xỉu': 0.0})
-        for i in range(len(r) - 2):
-            key = (r[i], r[i + 1])
-            w = 0.95 ** (len(r) - i - 2)
-            trans[key][r[i + 2]] += w
-        key = (r[-2], r[-1])
+        data = valid[-window:] if window and len(valid) > window else valid
+        trans = defaultdict(lambda: {'Tài': 0, 'Xỉu': 0})
+        for i in range(len(data) - 2):
+            key = (data[i]['result'], data[i + 1]['result'])
+            trans[key][data[i + 2]['result']] += 1
+        key = (data[-2]['result'], data[-1]['result'])
         counts = trans[key]
         total = counts['Tài'] + counts['Xỉu']
-        if total < 2:
+        if total < 3:
             return None, 0, 0
-        p_tai = (counts['Tài'] + 0.5) / (total + 1.0)
-        if p_tai >= 0.62:
-            return 'Tài', min(int(p_tai * 100) + 2, 82), 1.25
-        if p_tai <= 0.38:
-            return 'Xỉu', min(int((1 - p_tai) * 100) + 2, 82), 1.25
+        p_tai = (counts['Tài'] + 1) / (total + 2)
+        if p_tai > 0.58:
+            return 'Tài', int(p_tai * 100), 1.30
+        if p_tai < 0.42:
+            return 'Xỉu', int((1 - p_tai) * 100), 1.30
         return None, 0, 0
 
-    @classmethod
-    def _ensemble_boost(cls, valid):
+    @staticmethod
+    def _markov_order1(valid, window=None):
+        if len(valid) < 8:
+            return None, 0, 0
+        data = valid[-window:] if window and len(valid) > window else valid
+        trans = defaultdict(lambda: {'Tài': 0, 'Xỉu': 0})
+        for i in range(len(data) - 1):
+            trans[data[i]['result']][data[i + 1]['result']] += 1
+        counts = trans[data[-1]['result']]
+        total = counts['Tài'] + counts['Xỉu']
+        if total < 4:
+            return None, 0, 0
+        p_tai = (counts['Tài'] + 1) / (total + 2)
+        if p_tai > 0.56:
+            return 'Tài', int(p_tai * 100), 1.15
+        if p_tai < 0.44:
+            return 'Xỉu', int((1 - p_tai) * 100), 1.15
+        return None, 0, 0
+
+    @staticmethod
+    def _streak_break(valid, window=None):
+        if len(valid) < 4:
+            return None, 0, 0
+        r = [v['result'] for v in valid]
+        streak, last = MultiStrategyPredictor._tail_run(r)
+        opp = 'Xỉu' if last == 'Tài' else 'Tài'
+        # V9.2: chỉ bẻ khi streak THỰC SỰ dài và không phải bệt
+        cau, _ = MultiStrategyPredictor._detect_cau_type(r)
+        if cau == 'bet':
+            return None, 0, 0
+        if streak < 4 or streak > 9:
+            return None, 0, 0
+        breaks, continues = 0, 0
+        run = 1
+        for i in range(1, len(r)):
+            if r[i] == r[i - 1]:
+                run += 1
+            else:
+                if run >= 4:
+                    breaks += 1
+                run = 1
+        total_obs = breaks
+        if total_obs < 2:
+            return None, 0, 0
+        p_break = breaks / total_obs
+        if p_break >= 0.55:
+            conf = min(56 + int(p_break * 20) + (streak - 4) * 2, 74)
+            return opp, conf, 1.1
+        return None, 0, 0
+
+    @staticmethod
+    def _exhaustion(valid):
+        if len(valid) < 10:
+            return None, 0, 0
+        r = [v['result'] for v in valid]
+        streak, last = MultiStrategyPredictor._tail_run(r)
+        cau, _ = MultiStrategyPredictor._detect_cau_type(r)
+        # V9.2: chỉ khi KHÔNG phải bệt thật
+        if cau == 'bet':
+            return None, 0, 0
+        if streak < 7:
+            return None, 0, 0
+        opp = 'Xỉu' if last == 'Tài' else 'Tài'
+        base = 60 + (streak - 7) * 3
+        conf = max(55, min(int(base), 80))
+        weight = 1.1 + (streak - 7) * 0.08
+        return opp, conf, min(weight, 1.5)
+
+    @staticmethod
+    def _dominance_flip(valid):
         if len(valid) < 20:
             return None, 0, 0
-        stable_signals = [
-            cls._markov_order2(valid),
-            cls._trend(valid),
-            cls._transition_matrix(valid),
-        ]
-        votes = {'Tài': 0.0, 'Xỉu': 0.0}
-        count = 0
-        for p, c, w in stable_signals:
-            if p:
-                votes[p] += c
-                count += 1
-        if count < 2:
-            return None, 0, 0
-        total = votes['Tài'] + votes['Xỉu']
-        if total == 0:
-            return None, 0, 0
-        if votes['Tài'] >= 0.75 * total:
-            return 'Tài', min(int(votes['Tài'] / total * 100), 85), 1.15
-        if votes['Xỉu'] >= 0.75 * total:
-            return 'Xỉu', min(int(votes['Xỉu'] / total * 100), 85), 1.15
+        r = [v['result'] for v in valid[-20:]]
+        t = sum(1 for x in r if x == 'Tài') / 20
+        if t >= 0.85:
+            return 'Xỉu', max(min(int((t - 0.75) * 200), 75), 58), 0.90
+        if t <= 0.15:
+            return 'Tài', max(min(int((0.25 - t) * 200), 75), 58), 0.90
         return None, 0, 0
 
-    @classmethod
-    def _decision_tree(cls, valid):
+    @staticmethod
+    def _follow_trend(valid):
+        if len(valid) < 8:
+            return None, 0, 0
+        r = [v['result'] for v in valid]
+        streak, last = MultiStrategyPredictor._tail_run(r)
+        cau, _ = MultiStrategyPredictor._detect_cau_type(r)
+        # V9.2: theo cầu khi bệt, còn không thì hạn chế
+        if cau == 'bet':
+            return last, min(58 + streak * 2, 70), 1.15
+        if streak >= 5 or streak <= 1:
+            return None, 0, 0
+        if streak >= 3:
+            return last, min(56 + (streak - 3) * 3, 64), 0.85
+        return None, 0, 0
+
+    @staticmethod
+    def _invert_cau(valid):
+        if len(valid) < 12:
+            return None, 0, 0
+        r = [v['result'] for v in valid[-16:]]
+        alt = sum(1 for i in range(1, len(r)) if r[i] != r[i - 1])
+        alt_ratio = alt / (len(r) - 1)
+        if alt_ratio >= 0.65:
+            nxt = 'Xỉu' if r[-1] == 'Tài' else 'Tài'
+            return nxt, min(56 + int(alt_ratio * 30), 82), 1.30
+        return None, 0, 0
+
+    @staticmethod
+    def _trend(valid):
         if len(valid) < 20:
             return None, 0, 0
         r = [v['result'] for v in valid]
-        tail_len, tail_val = cls._tail_run(r)
-        if tail_len >= 5:
-            opp = 'Xỉu' if tail_val == 'Tài' else 'Tài'
-            return opp, 66, 1.15
-        if 3 <= tail_len <= 4:
-            p10 = cls._seg_ratio(r, 10)
-            if p10 > 0.70:
-                return 'Tài', 60, 1.00
-            if p10 < 0.30:
-                return 'Xỉu', 60, 1.00
-            opp = 'Xỉu' if tail_val == 'Tài' else 'Tài'
-            return opp, 58, 1.00
-        if tail_len <= 2:
-            p_alt = sum(1 for i in range(1, len(r[-10:]))
-                        if r[-10:][i] != r[-10:][i - 1]) / 9
-            if p_alt >= 0.65:
-                opp = 'Xỉu' if tail_val == 'Tài' else 'Tài'
-                return opp, 64, 1.10
+
+        def tai_ratio(win):
+            seg = r[-win:]
+            return sum(1 for x in seg if x == 'Tài') / len(seg)
+
+        p10 = tai_ratio(10)
+        p20 = tai_ratio(20) if len(r) >= 20 else p10
+        p40 = tai_ratio(40) if len(r) >= 40 else p20
+        if p10 > 0.55 and p20 > 0.52 and p10 >= p20 - 0.05 and p10 - p40 >= 0.05:
+            return 'Tài', min(int((p10 - 0.5) * 200 + 52), 78), 1.20
+        if p10 < 0.45 and p20 < 0.48 and p10 <= p20 + 0.05 and p40 - p10 >= 0.05:
+            return 'Xỉu', min(int((0.5 - p10) * 200 + 52), 78), 1.20
+        return None, 0, 0
+
+    @staticmethod
+    def _bias_run(valid):
+        if len(valid) < 24:
+            return None, 0, 0
+        r = [v['result'] for v in valid[-24:]]
+        first, second = r[:12], r[12:]
+        r_first = sum(1 for x in first if x == 'Tài') / 12
+        r_second = sum(1 for x in second if x == 'Tài') / 12
+        if r_second - r_first >= 0.25 and r_second >= 0.60:
+            return 'Tài', min(int((r_second - 0.5) * 180 + 55), 80), 1.15
+        if r_first - r_second >= 0.25 and (1 - r_second) >= 0.60:
+            return 'Xỉu', min(int((0.5 - r_second) * -180 + 55), 80), 1.15
+        return None, 0, 0
+
+    @staticmethod
+    def _pattern_match(valid, window=None):
+        if len(valid) < 15:
+            return None, 0, 0
+        results = [v['result'] for v in valid]
+        best_hit, best_conf, best_len = None, 0, 0
+        for plen in (7, 6, 5, 4, 3):
+            if len(results) < plen + 5:
+                continue
+            pattern = tuple(results[-plen:])
+            matches = []
+            for i in range(len(results) - plen):
+                if tuple(results[i:i + plen]) == pattern and i + plen < len(results):
+                    matches.append(results[i + plen])
+            if len(matches) >= 3:
+                c = Counter(matches)
+                top, count = c.most_common(1)[0]
+                conf = int(count / len(matches) * 100)
+                conf_adj = min(conf + min(plen * 2, 10), 88)
+                if conf_adj > best_conf and conf >= 55:
+                    best_hit, best_conf, best_len = top, conf_adj, plen
+        if best_hit:
+            weight = 1.2 + best_len * 0.08
+            return best_hit, best_conf, min(weight, 1.8)
+        return None, 0, 0
+
+    @staticmethod
+    def _weighted_freq(valid, window=30):
+        recent = valid[-window:]
+        if len(recent) < 8:
+            return None, 0, 0
+        tai, xiu = 0.0, 0.0
+        for i, v in enumerate(recent):
+            w = ((i + 1) / len(recent)) ** 1.5
+            if v['result'] == 'Tài':
+                tai += w
+            else:
+                xiu += w
+        total = tai + xiu
+        if total == 0:
+            return None, 0, 0
+        p = tai / total
+        if p > 0.58:
+            return 'Tài', int(p * 100), 0.85
+        if p < 0.42:
+            return 'Xỉu', int((1 - p) * 100), 0.85
+        return None, 0, 0
+
+    @staticmethod
+    def _dice_bias(valid, window=50):
+        recent = [v for v in valid[-window:] if v.get('total')]
+        if len(recent) < 10:
+            return None, 0, 0
+        tais = sum(1 for v in recent if v['result'] == 'Tài')
+        ratio = tais / len(recent)
+        if ratio > 0.62:
+            return 'Xỉu', max(int(min((ratio - 0.5) * 200, 75)), 55), 0.65
+        if ratio < 0.38:
+            return 'Tài', max(int(min((0.5 - ratio) * 200, 75)), 55), 0.65
+        return None, 0, 0
+
+    @staticmethod
+    def _alternation(valid, window=12):
+        recent = [v['result'] for v in valid[-window:]]
+        if len(recent) < 6:
+            return None, 0, 0
+        alt = sum(1 for i in range(1, len(recent)) if recent[i] != recent[i - 1])
+        alt_ratio = alt / (len(recent) - 1)
+        if alt_ratio >= 0.7:
+            nxt = 'Xỉu' if recent[-1] == 'Tài' else 'Tài'
+            return nxt, min(int(alt_ratio * 100) + 5, 85), 1.45
+        return None, 0, 0
+
+    @staticmethod
+    def _momentum(valid, window=10):
+        recent = [v['result'] for v in valid[-window:]]
+        if len(recent) < 6:
+            return None, 0, 0
+        tai = sum(1 for r in recent if r == 'Tài')
+        p = tai / len(recent)
+        if p >= 0.75:
+            return 'Tài', int(p * 100), 0.85
+        if p <= 0.25:
+            return 'Xỉu', int((1 - p) * 100), 0.85
+        return None, 0, 0
+
+    @staticmethod
+    def _recency_streak(valid):
+        if len(valid) < 10:
+            return None, 0, 0
+        weights = {'Tài': 0.0, 'Xỉu': 0.0}
+        n = 10
+        for i in range(len(valid) - n, len(valid)):
+            w = ((i - (len(valid) - n) + 1) / n) ** 2
+            weights[valid[i]['result']] += w
+        total = weights['Tài'] + weights['Xỉu']
+        if total == 0:
+            return None, 0, 0
+        p = weights['Tài'] / total
+        if p > 0.65:
+            return 'Tài', int(p * 100), 1.00
+        if p < 0.35:
+            return 'Xỉu', int((1 - p) * 100), 1.00
         return None, 0, 0
 
     # ==================== N-GRAM ====================
@@ -792,11 +725,9 @@ class MultiStrategyPredictor:
 
     @classmethod
     def _mirror_pattern(cls, r):
-        if len(r) < 10:
+        if len(r) < 16:
             return None, 0, 0
         n = 6
-        if len(r) < n * 2:
-            return None, 0, 0
         recent = r[-n:]
         mirrored = tuple('Xỉu' if x == 'Tài' else 'Tài' for x in reversed(recent))
         matches = []
@@ -929,11 +860,10 @@ class MultiStrategyPredictor:
             return None, 0, 0
         key_signals = [
             cls._markov_order2(valid),
-            cls._streak_break(valid),
-            cls._trend(valid),
-            cls._invert_cau(valid),
-            cls._alternation(valid),
-            cls._momentum(valid),
+            cls._follow_bet(valid),
+            cls._follow_bet_strong(valid),
+            cls._break_bet_smart(valid),
+            cls._follow_dao(valid),
         ]
         votes = {'Tài': 0, 'Xỉu': 0}
         count = 0
@@ -941,39 +871,12 @@ class MultiStrategyPredictor:
             if p:
                 votes[p] += c * w
                 count += 1
-        if count < 4:
+        if count < 3:
             return None, 0, 0
         if votes['Tài'] > votes['Xỉu'] * 1.3:
-            return 'Tài', min(int(votes['Tài'] / (votes['Tài'] + votes['Xỉu']) * 100), 80), 1.10
+            return 'Tài', min(int(votes['Tài'] / (votes['Tài'] + votes['Xỉu']) * 100), 82), 1.15
         if votes['Xỉu'] > votes['Tài'] * 1.3:
-            return 'Xỉu', min(int(votes['Xỉu'] / (votes['Tài'] + votes['Xỉu']) * 100), 80), 1.10
-        return None, 0, 0
-
-    @classmethod
-    def _signal_dissent(cls, valid):
-        if len(valid) < 15:
-            return None, 0, 0
-        key_signals = [
-            cls._markov_order2(valid),
-            cls._streak_break(valid),
-            cls._trend(valid),
-            cls._invert_cau(valid),
-            cls._alternation(valid),
-        ]
-        votes = {'Tài': 0, 'Xỉu': 0}
-        for p, c, w in key_signals:
-            if p:
-                votes[p] += 1
-        total = votes['Tài'] + votes['Xỉu']
-        if total < 4:
-            return None, 0, 0
-        if abs(votes['Tài'] - votes['Xỉu']) <= 1:
-            r = [v['result'] for v in valid[-8:]]
-            t_count = sum(1 for x in r if x == 'Tài')
-            if t_count >= 5:
-                return 'Tài', 55, 0.85
-            if t_count <= 3:
-                return 'Xỉu', 55, 0.85
+            return 'Xỉu', min(int(votes['Xỉu'] / (votes['Tài'] + votes['Xỉu']) * 100), 82), 1.15
         return None, 0, 0
 
     @classmethod
@@ -998,413 +901,303 @@ class MultiStrategyPredictor:
             return None, 0, 0
         r = [v['result'] for v in valid]
         cur_len, cur_val = cls._tail_run(r)
-        if cur_len < 3:
+        cau, _ = cls._detect_cau_type(r)
+        if cau == 'bet':
+            return None, 0, 0
+        if cur_len < 4:
             return None, 0, 0
         runs = _run_lengths(r)
         max_run = max(runs)
-        if max_run < 3:
+        if max_run < 4:
             return None, 0, 0
-        maturity = cur_len / max_run
-        if maturity >= 0.8 and cur_len >= 4:
+        if cur_len >= max_run and cur_len >= 4:
             opp = 'Xỉu' if cur_val == 'Tài' else 'Tài'
-            conf = min(55 + int(maturity * 20), 75)
+            conf = min(56 + (cur_len - max_run) * 3, 74)
             return opp, conf, 1.10
         return None, 0, 0
 
-    # ==================== ORIGINAL ====================
-    @staticmethod
-    def _markov_order3(valid):
-        if len(valid) < 25:
+    @classmethod
+    def _harmonic_pattern(cls, r):
+        if len(r) < 12:
             return None, 0, 0
-        trans = defaultdict(lambda: {'Tài': 0, 'Xỉu': 0})
-        for i in range(len(valid) - 3):
-            key = (valid[i]['result'], valid[i + 1]['result'], valid[i + 2]['result'])
-            trans[key][valid[i + 3]['result']] += 1
-        key = (valid[-3]['result'], valid[-2]['result'], valid[-1]['result'])
+        trans = defaultdict(lambda: {'Tài': 0.0, 'Xỉu': 0.0})
+        for i in range(len(r) - 2):
+            key = (r[i], r[i + 1])
+            w = 1.0 + (i / len(r)) * 0.5
+            trans[key][r[i + 2]] += w
+        key = (r[-2], r[-1])
         counts = trans[key]
         total = counts['Tài'] + counts['Xỉu']
         if total < 3:
             return None, 0, 0
-        p_tai = (counts['Tài'] + 1) / (total + 2)
-        if p_tai > 0.65:
-            return 'Tài', int(p_tai * 100), 1.45
-        if p_tai < 0.35:
-            return 'Xỉu', int((1 - p_tai) * 100), 1.45
-        return None, 0, 0
-
-    @staticmethod
-    def _markov_order2(valid, window=None):
-        if len(valid) < 15:
-            return None, 0, 0
-        data = valid[-window:] if window and len(valid) > window else valid
-        trans = defaultdict(lambda: {'Tài': 0, 'Xỉu': 0})
-        for i in range(len(data) - 2):
-            key = (data[i]['result'], data[i + 1]['result'])
-            trans[key][data[i + 2]['result']] += 1
-        key = (data[-2]['result'], data[-1]['result'])
-        counts = trans[key]
-        total = counts['Tài'] + counts['Xỉu']
-        if total < 3:
-            return None, 0, 0
-        p_tai = (counts['Tài'] + 1) / (total + 2)
-        if p_tai > 0.58:
-            return 'Tài', int(p_tai * 100), 1.30
-        if p_tai < 0.42:
-            return 'Xỉu', int((1 - p_tai) * 100), 1.30
-        return None, 0, 0
-
-    @staticmethod
-    def _markov_order1(valid, window=None):
-        if len(valid) < 8:
-            return None, 0, 0
-        data = valid[-window:] if window and len(valid) > window else valid
-        trans = defaultdict(lambda: {'Tài': 0, 'Xỉu': 0})
-        for i in range(len(data) - 1):
-            trans[data[i]['result']][data[i + 1]['result']] += 1
-        counts = trans[data[-1]['result']]
-        total = counts['Tài'] + counts['Xỉu']
-        if total < 4:
-            return None, 0, 0
-        p_tai = (counts['Tài'] + 1) / (total + 2)
-        if p_tai > 0.56:
-            return 'Tài', int(p_tai * 100), 1.15
-        if p_tai < 0.44:
-            return 'Xỉu', int((1 - p_tai) * 100), 1.15
-        return None, 0, 0
-
-    @staticmethod
-    def _streak_break(valid, window=None):
-        if len(valid) < 4:
-            return None, 0, 0
-        r = [v['result'] for v in valid]
-        streak, last = MultiStrategyPredictor._tail_run(r)
-        opp = 'Xỉu' if last == 'Tài' else 'Tài'
-        if streak == 1 and len(r) >= 6:
-            prev_run, _ = MultiStrategyPredictor._tail_run(r[:-1])
-            if prev_run >= 4:
-                return last, 62, 1.10
-        if streak < 3 or streak >= 8:
-            return None, 0, 0
-        breaks, continues = 0, 0
-        run = 1
-        for i in range(1, len(r)):
-            if r[i] == r[i - 1]:
-                run += 1
-            else:
-                if run >= 3:
-                    breaks += 1
-                run = 1
-        if run >= 3:
-            continues += 1
-        total_obs = breaks + continues
-        if streak <= 4:
-            if total_obs >= 3:
-                p_break = breaks / total_obs
-                p_break = 0.5 * p_break + 0.5 * min(0.52 + streak * 0.03, 0.65)
-            else:
-                p_break = min(0.55 + streak * 0.02, 0.65)
-            target, conf = opp, int(p_break * 100)
-        elif streak <= 7:
-            if total_obs < 2:
-                return None, 0, 0
-            p_break = breaks / total_obs
-            if p_break >= 0.55:
-                target, conf = opp, int(p_break * 100)
-            elif p_break <= 0.45:
-                target, conf = last, int((1 - p_break) * 100)
-            else:
-                return None, 0, 0
-        else:
-            return None, 0, 0
-        if conf < 55:
-            return None, 0, 0
-        weight = 1.0 + (streak - 3) * 0.10
-        return target, conf, min(weight, 1.6)
-
-    @staticmethod
-    def _exhaustion(valid):
-        if len(valid) < 10:
-            return None, 0, 0
-        r = [v['result'] for v in valid]
-        streak, last = MultiTailRun = MultiStrategyPredictor._tail_run(r)
-        if streak < 6:
-            return None, 0, 0
-        opp = 'Xỉu' if last == 'Tài' else 'Tài'
-        long_breaks, long_total = 0, 0
-        run = 1
-        for i in range(1, len(r) - 1):
-            if r[i] == r[i - 1]:
-                run += 1
-            else:
-                if run >= 6:
-                    long_total += 1
-                    long_breaks += 1
-                run = 1
-        if run >= 6:
-            long_total += 1
-        if streak <= 7:
-            base = 58 + (streak - 6) * 2
-        elif streak <= 10:
-            base = 62 + (streak - 8) * 2
-        else:
-            base = 72 + min((streak - 11) * 2, 8)
-        if long_total > 0:
-            p_break = long_breaks / long_total
-            base = int(base * 0.6 + p_break * 100 * 0.4)
-        else:
-            base -= 5
-        conf = max(55, min(int(base), 80))
-        weight = 1.1 + (streak - 6) * 0.08
-        return opp, conf, min(weight, 1.5)
-
-    @staticmethod
-    def _dominance_flip(valid):
-        if len(valid) < 20:
-            return None, 0, 0
-        r = [v['result'] for v in valid[-20:]]
-        t = sum(1 for x in r if x == 'Tài') / 20
-        if t >= 0.85:
-            return 'Xỉu', max(min(int((t - 0.75) * 200), 75), 58), 0.90
-        if t <= 0.15:
-            return 'Tài', max(min(int((0.25 - t) * 200), 75), 58), 0.90
-        return None, 0, 0
-
-    @staticmethod
-    def _follow_trend(valid):
-        if len(valid) < 8:
-            return None, 0, 0
-        r = [v['result'] for v in valid]
-        streak, last = MultiStrategyPredictor._tail_run(r)
-        # V9.1: chỉ follow khi streak 3-4, KHÔNG follow khi >= 5
-        if streak >= 5 or streak <= 1:
-            return None, 0, 0
-        if streak >= 3:
-            return last, min(56 + (streak - 3) * 3, 64), 0.85
-        if len(r) >= 15:
-            p15 = MultiStrategyPredictor._seg_ratio(r, 15)
-            p5 = MultiStrategyPredictor._seg_ratio(r, 5)
-            if 0.72 <= p15 <= 0.80 and p5 >= 0.65:
-                return 'Tài', min(55 + int((p15 - 0.65) * 100), 68), 0.95
-            if 0.20 <= p15 <= 0.28 and p5 <= 0.35:
-                return 'Xỉu', min(55 + int((0.35 - p15) * 100), 68), 0.95
-        return None, 0, 0
-
-    @staticmethod
-    def _invert_cau(valid):
-        if len(valid) < 12:
-            return None, 0, 0
-        r = [v['result'] for v in valid[-16:]]
-        alt = sum(1 for i in range(1, len(r)) if r[i] != r[i - 1])
-        alt_ratio = alt / (len(r) - 1)
-        if alt_ratio >= 0.65:
-            nxt = 'Xỉu' if r[-1] == 'Tài' else 'Tài'
-            return nxt, min(56 + int(alt_ratio * 30), 82), 1.30
-        block2_hits, block2_total = 0, 0
-        for i in range(2, len(r)):
-            if r[i] == r[i - 2] and r[i] != r[i - 1]:
-                block2_hits += 1
-            if r[i] != r[i - 1]:
-                block2_total += 1
-        if block2_total >= 4 and block2_hits / block2_total >= 0.7:
-            tail_run, _ = MultiStrategyPredictor._tail_run(r)
-            nxt = r[-2] if tail_run == 1 else ('Xỉu' if r[-1] == 'Tài' else 'Tài')
-            return nxt, 68, 1.25
-        return None, 0, 0
-
-    @staticmethod
-    def _trend(valid):
-        if len(valid) < 20:
-            return None, 0, 0
-        r = [v['result'] for v in valid]
-
-        def tai_ratio(win):
-            seg = r[-win:]
-            return sum(1 for x in seg if x == 'Tài') / len(seg)
-
-        p10 = tai_ratio(10)
-        p20 = tai_ratio(20) if len(r) >= 20 else p10
-        p40 = tai_ratio(40) if len(r) >= 40 else p20
-        if p10 > 0.55 and p20 > 0.52 and p10 >= p20 - 0.05 and p10 - p40 >= 0.05:
-            return 'Tài', min(int((p10 - 0.5) * 200 + 52), 78), 1.20
-        if p10 < 0.45 and p20 < 0.48 and p10 <= p20 + 0.05 and p40 - p10 >= 0.05:
-            return 'Xỉu', min(int((0.5 - p10) * 200 + 52), 78), 1.20
-        return None, 0, 0
-
-    @staticmethod
-    def _bias_run(valid):
-        if len(valid) < 24:
-            return None, 0, 0
-        r = [v['result'] for v in valid[-24:]]
-        first, second = r[:12], r[12:]
-        r_first = sum(1 for x in first if x == 'Tài') / 12
-        r_second = sum(1 for x in second if x == 'Tài') / 12
-        if r_second - r_first >= 0.25 and r_second >= 0.60:
-            return 'Tài', min(int((r_second - 0.5) * 180 + 55), 80), 1.15
-        if r_first - r_second >= 0.25 and (1 - r_second) >= 0.60:
-            return 'Xỉu', min(int((0.5 - r_second) * -180 + 55), 80), 1.15
-        if r_second >= 0.75:
-            return 'Tài', 65, 1.00
-        if r_second <= 0.25:
-            return 'Xỉu', 65, 1.00
-        return None, 0, 0
-
-    @staticmethod
-    def _pattern_match(valid, window=None):
-        if len(valid) < 15:
-            return None, 0, 0
-        results = [v['result'] for v in valid]
-        best_hit, best_conf, best_len = None, 0, 0
-        for plen in (7, 6, 5, 4, 3):
-            if len(results) < plen + 5:
-                continue
-            pattern = tuple(results[-plen:])
-            matches = []
-            for i in range(len(results) - plen):
-                if tuple(results[i:i + plen]) == pattern and i + plen < len(results):
-                    matches.append(results[i + plen])
-            if len(matches) >= 3:
-                c = Counter(matches)
-                top, count = c.most_common(1)[0]
-                conf = int(count / len(matches) * 100)
-                conf_adj = min(conf + min(plen * 2, 10), 88)
-                if conf_adj > best_conf and conf >= 55:
-                    best_hit, best_conf, best_len = top, conf_adj, plen
-        if best_hit:
-            weight = 1.2 + best_len * 0.08
-            return best_hit, best_conf, min(weight, 1.8)
-        return None, 0, 0
-
-    @staticmethod
-    def _weighted_freq(valid, window=30):
-        recent = valid[-window:]
-        if len(recent) < 8:
-            return None, 0, 0
-        tai, xiu = 0.0, 0.0
-        for i, v in enumerate(recent):
-            w = ((i + 1) / len(recent)) ** 1.5
-            if v['result'] == 'Tài':
-                tai += w
-            else:
-                xiu += w
-        total = tai + xiu
-        if total == 0:
-            return None, 0, 0
-        p = tai / total
-        if p > 0.58:
-            return 'Tài', int(p * 100), 0.85
-        if p < 0.42:
-            return 'Xỉu', int((1 - p) * 100), 0.85
-        return None, 0, 0
-
-    @staticmethod
-    def _dice_bias(valid, window=50):
-        recent = [v for v in valid[-window:] if v.get('total')]
-        if len(recent) < 10:
-            return None, 0, 0
-        tais = sum(1 for v in recent if v['result'] == 'Tài')
-        ratio = tais / len(recent)
-        if ratio > 0.62:
-            return 'Xỉu', max(int(min((ratio - 0.5) * 200, 75)), 55), 0.65
-        if ratio < 0.38:
-            return 'Tài', max(int(min((0.5 - ratio) * 200, 75)), 55), 0.65
-        return None, 0, 0
-
-    @staticmethod
-    def _alternation(valid, window=12):
-        recent = [v['result'] for v in valid[-window:]]
-        if len(recent) < 6:
-            return None, 0, 0
-        alt = sum(1 for i in range(1, len(recent)) if recent[i] != recent[i - 1])
-        alt_ratio = alt / (len(recent) - 1)
-        if alt_ratio >= 0.7:
-            nxt = 'Xỉu' if recent[-1] == 'Tài' else 'Tài'
-            return nxt, min(int(alt_ratio * 100) + 5, 85), 1.45
-        return None, 0, 0
-
-    @staticmethod
-    def _momentum(valid, window=10):
-        recent = [v['result'] for v in valid[-window:]]
-        if len(recent) < 6:
-            return None, 0, 0
-        tai = sum(1 for r in recent if r == 'Tài')
-        p = tai / len(recent)
-        # V9.1: nới ngưỡng momentum để không bias bệt
-        if p >= 0.75:
-            return 'Tài', int(p * 100), 0.85
-        if p <= 0.25:
-            return 'Xỉu', int((1 - p) * 100), 0.85
-        return None, 0, 0
-
-    @staticmethod
-    def _recency_streak(valid):
-        if len(valid) < 10:
-            return None, 0, 0
-        weights = {'Tài': 0.0, 'Xỉu': 0.0}
-        n = 10
-        for i in range(len(valid) - n, len(valid)):
-            w = ((i - (len(valid) - n) + 1) / n) ** 2
-            weights[valid[i]['result']] += w
-        total = weights['Tài'] + weights['Xỉu']
-        if total == 0:
-            return None, 0, 0
-        p = weights['Tài'] / total
-        # V9.1: nới ngưỡng
-        if p > 0.65:
-            return 'Tài', int(p * 100), 1.00
-        if p < 0.35:
-            return 'Xỉu', int((1 - p) * 100), 1.00
+        p_tai = counts['Tài'] / total
+        if p_tai >= 0.65:
+            return 'Tài', min(int(p_tai * 100), 82), 1.20
+        if p_tai <= 0.35:
+            return 'Xỉu', min(int((1 - p_tai) * 100), 82), 1.20
         return None, 0, 0
 
     @classmethod
-    def _time_pattern(cls, valid):
-        if len(valid) < 20:
+    def _wavelet_trend(cls, valid):
+        if len(valid) < 30:
             return None, 0, 0
         r = [v['result'] for v in valid]
-        for period in (5, 6, 7, 8, 9, 10):
+        p_short = cls._seg_ratio(r, 5)
+        p_medium = cls._seg_ratio(r, 15)
+        p_long = cls._seg_ratio(r, 30)
+        if p_short > 0.65 and p_medium > 0.58 and p_long > 0.52:
+            conf = min(60 + int((p_short - 0.6) * 100), 80)
+            return 'Tài', conf, 1.15
+        if p_short < 0.35 and p_medium < 0.42 and p_long < 0.48:
+            conf = min(60 + int((0.4 - p_short) * 100), 80)
+            return 'Xỉu', conf, 1.15
+        return None, 0, 0
+
+    @classmethod
+    def _seasonal_cycle(cls, r):
+        if len(r) < 40:
+            return None, 0, 0
+        for period in (12, 10, 14, 15, 11, 13):
             if len(r) < period * 3:
                 continue
-            target_pos = (len(r) % period)
-            matching_pos = [r[i] for i in range(len(r)) if i % period == target_pos and i < len(r) - 1]
-            if len(matching_pos) >= 3:
-                c = Counter(matching_pos)
+            matches = []
+            target_pos = len(r) % period
+            for i in range(len(r) - period):
+                if i % period == target_pos and i < len(r) - 1:
+                    matches.append(r[i])
+            if len(matches) >= 3:
+                c = Counter(matches)
                 top, cnt = c.most_common(1)[0]
-                ratio = cnt / len(matching_pos)
-                if ratio >= 0.65:
-                    conf = min(55 + int(ratio * 25), 75)
+                ratio = cnt / len(matches)
+                if ratio >= 0.70:
+                    conf = min(55 + int(ratio * 20), 78)
                     return top, conf, 1.05
         return None, 0, 0
 
     @classmethod
-    def _volatility(cls, valid):
-        if len(valid) < 20:
+    def _markov_weighted(cls, valid):
+        if len(valid) < 25:
             return None, 0, 0
-        r = [v['result'] for v in valid[-20:]]
-        flips = sum(1 for i in range(1, len(r)) if r[i] != r[i - 1])
-        flip_ratio = flips / (len(r) - 1)
-        if flip_ratio >= 0.85:
-            return ('Xỉu' if r[-1] == 'Tài' else 'Tài'), 64, 1.15
-        if flip_ratio <= 0.15:
-            cur_len, cur_val = cls._tail_run(r)
-            if cur_len >= 4:
-                return ('Xỉu' if cur_val == 'Tài' else 'Tài'), 62, 1.10
+        r = [v['result'] for v in valid]
+        trans = defaultdict(lambda: {'Tài': 0.0, 'Xỉu': 0.0})
+        for i in range(len(r) - 2):
+            key = (r[i], r[i + 1])
+            w = 0.95 ** (len(r) - i - 2)
+            trans[key][r[i + 2]] += w
+        key = (r[-2], r[-1])
+        counts = trans[key]
+        total = counts['Tài'] + counts['Xỉu']
+        if total < 2:
+            return None, 0, 0
+        p_tai = (counts['Tài'] + 0.5) / (total + 1.0)
+        if p_tai >= 0.62:
+            return 'Tài', min(int(p_tai * 100) + 2, 82), 1.25
+        if p_tai <= 0.38:
+            return 'Xỉu', min(int((1 - p_tai) * 100) + 2, 82), 1.25
         return None, 0, 0
 
     @classmethod
-    def _cusum(cls, valid):
-        if len(valid) < 15:
+    def _ensemble_boost(cls, valid):
+        if len(valid) < 20:
+            return None, 0, 0
+        stable_signals = [
+            cls._markov_order2(valid),
+            cls._trend(valid),
+            cls._transition_matrix(valid),
+        ]
+        votes = {'Tài': 0.0, 'Xỉu': 0.0}
+        count = 0
+        for p, c, w in stable_signals:
+            if p:
+                votes[p] += c
+                count += 1
+        if count < 2:
+            return None, 0, 0
+        total = votes['Tài'] + votes['Xỉu']
+        if total == 0:
+            return None, 0, 0
+        if votes['Tài'] >= 0.75 * total:
+            return 'Tài', min(int(votes['Tài'] / total * 100), 85), 1.15
+        if votes['Xỉu'] >= 0.75 * total:
+            return 'Xỉu', min(int(votes['Xỉu'] / total * 100), 85), 1.15
+        return None, 0, 0
+
+    @classmethod
+    def _decision_tree(cls, valid):
+        if len(valid) < 20:
+            return None, 0, 0
+        r = [v['result'] for v in valid]
+        cau, cur_len = cls._detect_cau_type(r)
+        tail_len, tail_val = cls._tail_run(r)
+
+        # V9.2: cây quyết định theo cầu
+        if cau == 'bet':
+            if cur_len <= 4:
+                return tail_val, 64, 1.25
+            return None, 0, 0  # để signal bẻ xử lý
+
+        if cau == 'dao_1_1':
+            opp = 'Xỉu' if tail_val == 'Tài' else 'Tài'
+            return opp, 66, 1.3
+
+        if cau == 'cau_2_2':
+            if tail_len == 1:
+                return tail_val, 62, 1.2
+            if tail_len == 2:
+                opp = 'Xỉu' if tail_val == 'Tài' else 'Tài'
+                return opp, 64, 1.3
+
+        return None, 0, 0
+
+    @classmethod
+    def _auto_cycle_signal(cls, r):
+        if len(r) < 12:
+            return None, 0, 0
+        cyc = cls._detect_cycle(r, max_period=6, min_repeats=2)
+        if not cyc:
+            return None, 0, 0
+        return cyc['next'], min(60 + (6 - cyc['period']) * 3, 78), 1.3
+
+    @classmethod
+    def _detect_cycle(cls, r, max_period=6, min_repeats=2):
+        if len(r) < 8:
+            return None
+        best = None
+        for period in range(2, min(max_period * 2, len(r) // min_repeats) + 1):
+            needed = period * min_repeats
+            if len(r) < needed:
+                break
+            tail = r[-needed:]
+            pattern = tail[-period:]
+            match = True
+            for k in range(min_repeats):
+                chunk = tail[k * period:(k + 1) * period]
+                if chunk != pattern:
+                    match = False
+                    break
+            if match:
+                phase = len(r) % period
+                hits, total = 0, 0
+                for i in range(len(r) - period):
+                    if r[i] == pattern[i % period]:
+                        hits += 1
+                    total += 1
+                if total >= 6 and hits / total >= 0.65:
+                    score = hits / total
+                    if best is None or score > best[0]:
+                        best = (score, period, phase, pattern)
+        if not best:
+            return None
+        _, period, phase, pattern = best
+        return {'period': period, 'phase': phase, 'pattern': pattern,
+                'next': pattern[phase % period]}
+
+    @classmethod
+    def _pattern_similarity(cls, r):
+        if len(r) < 15:
+            return None, 0, 0
+        for wlen in (8, 7, 6, 5, 4):
+            if len(r) < wlen + 6:
+                continue
+            cur = r[-wlen:]
+            matches = []
+            for i in range(len(r) - wlen):
+                window = r[i:i + wlen]
+                sim = sum(1 for a, b in zip(cur, window) if a == b) / wlen
+                if sim >= 0.85 and i + wlen < len(r):
+                    matches.append((sim, r[i + wlen]))
+            if len(matches) >= 3:
+                weighted = {'Tài': 0.0, 'Xỉu': 0.0}
+                for sim, nv in matches:
+                    weighted[nv] += sim
+                total = weighted['Tài'] + weighted['Xỉu']
+                if total == 0:
+                    continue
+                p_tai = weighted['Tài'] / total
+                if p_tai >= 0.62:
+                    return 'Tài', min(int(p_tai * 100) + wlen, 85), 1.25
+                if p_tai <= 0.38:
+                    return 'Xỉu', min(int((1 - p_tai) * 100) + wlen, 85), 1.25
+        return None, 0, 0
+
+    @classmethod
+    def _regime_signal(cls, valid):
+        if len(valid) < 20:
+            return None, 0, 0
+        r = [v['result'] for v in valid]
+        cau, cur_len = cls._detect_cau_type(r)
+        if cau == 'bet':
+            return None, 0, 0
+        if cau == 'dao_1_1':
+            return ('Xỉu' if r[-1] == 'Tài' else 'Tài'), 62, 1.2
+        return None, 0, 0
+
+    @classmethod
+    def _run_break(cls, valid):
+        if len(valid) < 8:
+            return None, 0, 0
+        r = [v['result'] for v in valid]
+        cau, _ = cls._detect_cau_type(r)
+        if cau == 'bet':
+            return None, 0, 0
+        cur_len, cur_val = cls._tail_run(r)
+        if cur_len < 5 or cur_len > 10:
+            return None, 0, 0
+        runs = _run_lengths(r)
+        breaks, totals = 0, 0
+        for rlen in runs[:-1]:
+            if rlen >= 5:
+                totals += 1
+                breaks += 1
+        p = breaks / totals if totals > 0 else 0.5
+        if p >= 0.55:
+            next_val = 'Xỉu' if cur_val == 'Tài' else 'Tài'
+            conf = min(56 + int(p * 20) + (cur_len - 5) * 2, 78)
+            return next_val, conf, 1.15
+        return None, 0, 0
+
+    @classmethod
+    def _rsi_signal(cls, valid, period=14):
+        if len(valid) < period + 5:
+            return None, 0, 0
+        r = [v['result'] for v in valid]
+        changes = []
+        for i in range(1, len(r)):
+            if r[i] == r[i - 1]:
+                changes.append(0)
+            elif r[i] == 'Tài':
+                changes.append(1)
+            else:
+                changes.append(-1)
+        recent = changes[-period:]
+        gains = sum(c for c in recent if c > 0)
+        losses = sum(-c for c in recent if c < 0)
+        if gains + losses == 0:
+            return None, 0, 0
+        rs = gains / (losses + 0.01)
+        rsi = 100 - 100 / (1 + rs)
+        if rsi >= 75:
+            return 'Xỉu', min(55 + int((rsi - 70)), 78), 1.10
+        if rsi <= 25:
+            return 'Tài', min(55 + int((30 - rsi)), 78), 1.10
+        return None, 0, 0
+
+    @classmethod
+    def _zscore_extreme(cls, valid):
+        if len(valid) < 20:
             return None, 0, 0
         r = [v['result'] for v in valid[-20:]]
-        vals = [1 if x == 'Tài' else -1 for x in r]
+        vals = [1 if x == 'Tài' else 0 for x in r]
         mean = sum(vals) / len(vals)
-        s_pos, s_neg = 0.0, 0.0
-        threshold = 1.5
-        for v in vals:
-            s_pos = max(0, s_pos + (v - mean))
-            s_neg = max(0, s_neg - (v - mean))
-        if s_pos > threshold and mean > 0:
-            return 'Xỉu', 62, 1.05
-        if s_neg > threshold and mean < 0:
-            return 'Tài', 62, 1.05
+        variance = sum((v - mean) ** 2 for v in vals) / len(vals)
+        std = variance ** 0.5
+        if std < 0.01:
+            return None, 0, 0
+        z = (vals[-1] - mean) / std
+        if z >= 1.5:
+            return 'Xỉu', 62, 0.95
+        if z <= -1.5:
+            return 'Tài', 62, 0.95
         return None, 0, 0
 
     @classmethod
@@ -1444,61 +1237,105 @@ class MultiStrategyPredictor:
         return None, 0, 0
 
     @classmethod
-    def _rsi_signal(cls, valid, period=14):
-        if len(valid) < period + 5:
-            return None, 0, 0
-        r = [v['result'] for v in valid]
-        changes = []
-        for i in range(1, len(r)):
-            if r[i] == r[i - 1]:
-                changes.append(0)
-            elif r[i] == 'Tài':
-                changes.append(1)
-            else:
-                changes.append(-1)
-        recent = changes[-period:]
-        gains = sum(c for c in recent if c > 0)
-        losses = sum(-c for c in recent if c < 0)
-        if gains + losses == 0:
-            return None, 0, 0
-        rs = gains / (losses + 0.01)
-        rsi = 100 - 100 / (1 + rs)
-        if rsi >= 75:
-            return 'Xỉu', min(55 + int((rsi - 70)), 78), 1.10
-        if rsi <= 25:
-            return 'Tài', min(55 + int((30 - rsi)), 78), 1.10
-        return None, 0, 0
-
-    @classmethod
     def _fibonacci_break(cls, valid):
         if len(valid) < 15:
             return None, 0, 0
         r = [v['result'] for v in valid]
+        cau, _ = cls._detect_cau_type(r)
+        if cau == 'bet':
+            return None, 0, 0
         cur_len, cur_val = cls._tail_run(r)
         fibs = [3, 5, 8, 13]
         for fib in fibs:
-            if cur_len == fib or cur_len == fib + 1:
+            if cur_len == fib:
                 opp = 'Xỉu' if cur_val == 'Tài' else 'Tài'
                 conf = min(58 + fib, 75)
                 return opp, conf, 1.10
         return None, 0, 0
 
     @classmethod
-    def _zscore_extreme(cls, valid):
+    def _cusum(cls, valid):
+        if len(valid) < 15:
+            return None, 0, 0
+        r = [v['result'] for v in valid[-20:]]
+        vals = [1 if x == 'Tài' else -1 for x in r]
+        mean = sum(vals) / len(vals)
+        s_pos, s_neg = 0.0, 0.0
+        threshold = 1.5
+        for v in vals:
+            s_pos = max(0, s_pos + (v - mean))
+            s_neg = max(0, s_neg - (v - mean))
+        if s_pos > threshold and mean > 0:
+            return 'Xỉu', 62, 1.05
+        if s_neg > threshold and mean < 0:
+            return 'Tài', 62, 1.05
+        return None, 0, 0
+
+    @classmethod
+    def _time_pattern(cls, valid):
+        if len(valid) < 20:
+            return None, 0, 0
+        r = [v['result'] for v in valid]
+        for period in (5, 6, 7, 8, 9, 10):
+            if len(r) < period * 3:
+                continue
+            target_pos = (len(r) % period)
+            matching_pos = [r[i] for i in range(len(r)) if i % period == target_pos and i < len(r) - 1]
+            if len(matching_pos) >= 3:
+                c = Counter(matching_pos)
+                top, cnt = c.most_common(1)[0]
+                ratio = cnt / len(matching_pos)
+                if ratio >= 0.65:
+                    conf = min(55 + int(ratio * 25), 75)
+                    return top, conf, 1.05
+        return None, 0, 0
+
+    @classmethod
+    def _volatility(cls, valid):
         if len(valid) < 20:
             return None, 0, 0
         r = [v['result'] for v in valid[-20:]]
-        vals = [1 if x == 'Tài' else 0 for x in r]
-        mean = sum(vals) / len(vals)
-        variance = sum((v - mean) ** 2 for v in vals) / len(vals)
-        std = variance ** 0.5
-        if std < 0.01:
+        flips = sum(1 for i in range(1, len(r)) if r[i] != r[i - 1])
+        flip_ratio = flips / (len(r) - 1)
+        if flip_ratio >= 0.85:
+            return ('Xỉu' if r[-1] == 'Tài' else 'Tài'), 64, 1.15
+        return None, 0, 0
+
+    @classmethod
+    def _dice_parity(cls, valid):
+        recent = [v for v in valid[-30:] if v.get('total') is not None]
+        if len(recent) < 15:
             return None, 0, 0
-        z = (vals[-1] - mean) / std
-        if z >= 1.5:
-            return 'Xỉu', 62, 0.95
-        if z <= -1.5:
-            return 'Tài', 62, 0.95
+        last_totals = [v.get('total', 0) for v in recent[-5:]]
+        even_count = sum(1 for t in last_totals if t % 2 == 0)
+        if even_count >= 4:
+            return 'Xỉu', 56, 0.85
+        if even_count <= 1:
+            return 'Tài', 56, 0.85
+        return None, 0, 0
+
+    @classmethod
+    def _pattern_memory_signal(cls, valid):
+        if len(PATTERN_MEMORY) < 5 or len(valid) < 15:
+            return None, 0, 0
+        r = [v['result'] for v in valid]
+        best = None
+        for entry in list(PATTERN_MEMORY)[-80:]:
+            if entry.get('hits', 0) < 5:
+                continue
+            if entry.get('ratio', 0) < 0.7:
+                continue
+            pat = entry['pattern']
+            plen = len(pat)
+            if plen > len(r):
+                continue
+            if tuple(r[-min(plen, 5):]) == pat[-min(plen, 5):]:
+                score = entry['hits'] * entry['ratio']
+                if best is None or score > best[0]:
+                    best = (score, entry['next'])
+        if best and best[0] >= 3.5:
+            conf = min(58 + int(best[0] * 3), 80)
+            return best[1], conf, 1.15
         return None, 0, 0
 
     # ==================== ADAPTIVE ====================
@@ -1511,7 +1348,6 @@ class MultiStrategyPredictor:
         if n < 8:
             return base_weight
         acc = tr['hit'] / n
-        # V9.1: phạt mạnh signal có acc < 45%
         if acc < 0.45:
             return base_weight * 0.35
         factor = 0.55 + (acc - 0.5) * 2.8
@@ -1535,7 +1371,7 @@ class MultiStrategyPredictor:
         if cls._STRATEGY_TRACK.get('__len__', {}).get('last_len') == cur_len:
             return
         cls._STRATEGY_TRACK = defaultdict(lambda: {'hit': 0, 'miss': 0, 'last_len': 0})
-        start = max(15, len(valid) - 80)
+        start = max(15, len(valid) - 60)
         for i in range(start, len(valid) - 1):
             history = valid[:i]
             actual = valid[i]['result']
@@ -1577,7 +1413,6 @@ class MultiStrategyPredictor:
         evaluated = [e for e in log.values() if e.get('actual') is not None]
         if len(evaluated) < 20:
             return raw_conf
-
         recent30 = sorted(
             [(p, e) for p, e in log.items() if e.get('actual') is not None],
             reverse=True
@@ -1585,31 +1420,38 @@ class MultiStrategyPredictor:
         if not recent30:
             return raw_conf
         acc30 = sum(1 for _, e in recent30 if e.get('correct')) / len(recent30)
-
         recent100 = sorted(
             [(p, e) for p, e in log.items() if e.get('actual') is not None],
             reverse=True
         )[:100]
         acc100 = sum(1 for _, e in recent100 if e.get('correct')) / len(recent100) if recent100 else acc30
-
         acc_blend = acc30 * 0.6 + acc100 * 0.4
-
         if acc_blend < 0.42:
-            return max(50, raw_conf - 14)
+            return max(50, raw_conf - 12)
         if acc_blend < 0.48:
-            return max(50, raw_conf - 8)
+            return max(50, raw_conf - 6)
         if acc_blend < 0.52:
-            return max(50, raw_conf - 3)
+            return max(50, raw_conf - 2)
         if acc_blend > 0.70:
             return min(84, raw_conf + 5)
         if acc_blend > 0.62:
             return min(84, raw_conf + 2)
         return raw_conf
 
-    # ==================== STRATEGY LIST ====================
+    # ==================== STRATEGY LIST V9.2 ====================
     @classmethod
     def _strategy_list(cls):
         return [
+            # V9.2 cầu signals - ưu tiên cao
+            ('follow_bet',         cls._follow_bet),
+            ('follow_bet_strong',  cls._follow_bet_strong),
+            ('break_bet_smart',    cls._break_bet_smart),
+            ('follow_dao',         cls._follow_dao),
+            ('follow_22',          cls._follow_22),
+            ('follow_33',          cls._follow_33),
+            ('cau_momentum',       cls._cau_momentum),
+            ('reversal_signal',    cls._reversal_signal),
+            # Cổ điển
             ('markov3',      cls._markov_order3),
             ('markov2',      cls._markov_order2),
             ('markov1',      cls._markov_order1),
@@ -1626,45 +1468,22 @@ class MultiStrategyPredictor:
             ('follow',       cls._follow_trend),
             ('exhaust',      cls._exhaustion),
             ('dominance',    cls._dominance_flip),
-            ('cycle_1_1',    lambda v: cls._cycle_signal([x['result'] for x in v], [1, 1])),
-            ('cycle_2_2',    lambda v: cls._cycle_signal([x['result'] for x in v], [2, 2])),
-            ('cycle_3_3',    lambda v: cls._cycle_signal([x['result'] for x in v], [3, 3])),
-            ('cycle_1_2',    lambda v: cls._cycle_signal([x['result'] for x in v], [1, 2])),
-            ('cycle_2_1',    lambda v: cls._cycle_signal([x['result'] for x in v], [2, 1])),
-            ('cycle_1_3',    lambda v: cls._cycle_signal([x['result'] for x in v], [1, 3])),
-            ('cycle_3_1',    lambda v: cls._cycle_signal([x['result'] for x in v], [3, 1])),
-            ('cycle_2_3',    lambda v: cls._cycle_signal([x['result'] for x in v], [2, 3])),
-            ('cycle_3_2',    lambda v: cls._cycle_signal([x['result'] for x in v], [3, 2])),
-            ('cycle_123',    lambda v: cls._cycle_signal([x['result'] for x in v], [1, 2, 3])),
-            ('cycle_321',    lambda v: cls._cycle_signal([x['result'] for x in v], [3, 2, 1])),
-            ('cycle_346',    lambda v: cls._cycle_signal([x['result'] for x in v], [3, 4, 6])),
-            ('cycle_112',    lambda v: cls._cycle_signal([x['result'] for x in v], [1, 1, 2])),
-            ('cycle_212',    lambda v: cls._cycle_signal([x['result'] for x in v], [2, 1, 2])),
-            ('cycle_122',    lambda v: cls._cycle_signal([x['result'] for x in v], [1, 2, 2])),
-            ('cycle_221',    lambda v: cls._cycle_signal([x['result'] for x in v], [2, 2, 1])),
-            ('cycle_1234',   lambda v: cls._cycle_signal([x['result'] for x in v], [1, 2, 3, 4])),
-            ('cycle_2341',   lambda v: cls._cycle_signal([x['result'] for x in v], [2, 3, 4, 1])),
-            ('cycle_3456',   lambda v: cls._cycle_signal([x['result'] for x in v], [3, 4, 5, 6])),
-            ('cycle_4_4',    lambda v: cls._cycle_signal([x['result'] for x in v], [4, 4])),
             ('auto_cycle',   lambda v: cls._auto_cycle_signal([x['result'] for x in v])),
             ('pattern_sim',  lambda v: cls._pattern_similarity([x['result'] for x in v])),
             ('regime',       cls._regime_signal),
-            ('flip_break',   cls._flip_break),
             ('run_break',    cls._run_break),
             ('ngram_2',      lambda v: cls._ngram_signal([x['result'] for x in v], 2)),
             ('ngram_3',      lambda v: cls._ngram_signal([x['result'] for x in v], 3)),
             ('ngram_4',      lambda v: cls._ngram_signal([x['result'] for x in v], 4)),
             ('ngram_5',      lambda v: cls._ngram_signal([x['result'] for x in v], 5)),
-            ('mirror_pattern',  lambda v: cls._mirror_pattern([x['result'] for x in v])),
-            ('reverse_trend',   cls._reverse_trend),
+            ('mirror_pattern',   lambda v: cls._mirror_pattern([x['result'] for x in v])),
+            ('reverse_trend',    cls._reverse_trend),
             ('palindrome_check', lambda v: cls._palindrome_check([x['result'] for x in v])),
             ('bayes_recent',      cls._bayes_recent),
             ('chi_square',        cls._chi_square),
             ('runs_prediction',   cls._runs_prediction),
             ('transition_matrix', cls._transition_matrix),
-            ('double_break',      lambda v: cls._cycle_signal([x['result'] for x in v], [2, 2])),
             ('signal_consensus',  cls._signal_consensus),
-            ('signal_dissent',    cls._signal_dissent),
             ('entropy_adaptive',  cls._entropy_adaptive),
             ('streak_maturity',   cls._streak_maturity),
             ('time_pattern',      cls._time_pattern),
@@ -1681,20 +1500,11 @@ class MultiStrategyPredictor:
             ('markov_weighted',   cls._markov_weighted),
             ('ensemble_boost',    cls._ensemble_boost),
             ('decision_tree',     cls._decision_tree),
-            ('streak_aware',      cls._streak_aware),
-            ('tier2_boost',       cls._tier2_boost),
-            ('volatility_regime', cls._volatility_regime),
-            ('cascade_pattern',   cls._cascade_pattern),
-            ('regime_router',     cls._regime_router),
             ('pattern_memory',    cls._pattern_memory_signal),
-            ('anti_streak',       cls._anti_streak),
             ('dice_parity',       cls._dice_parity),
-            # V9.1 NEW
-            ('streak_balance',    cls._streak_balance),
-            ('break_priority',    cls._break_priority),
         ]
 
-    # ==================== MAIN PREDICT V9.1 ====================
+    # ==================== MAIN PREDICT V9.2 ====================
     @classmethod
     def predict(cls, valid, log=None):
         if log is None:
@@ -1708,6 +1518,7 @@ class MultiStrategyPredictor:
                 'signals': [], 'top_signals': ['Chưa có DL'],
                 'signals_strength': [],
                 'reason': 'Không có dữ liệu', 'flipped': False,
+                'cau': 'unknown',
             }
 
         if len(valid) < 5:
@@ -1730,23 +1541,27 @@ class MultiStrategyPredictor:
                 'prediction': opp, 'confidence': conf,
                 'method': method, 'signals': [],
                 'top_signals': [method], 'signals_strength': [],
-                'reason': reason, 'flipped': False,
+                'reason': reason, 'flipped': False, 'cau': 'unknown',
             }
 
         cls._sync_track_from_history(valid)
 
         all_results = [v['result'] for v in valid]
-        regime = _detect_regime(all_results)
-        cur_streak_len, cur_streak_val = cls._tail_run(all_results)
+        cau_type, cur_streak_len = cls._detect_cau_type(all_results)
+        cur_streak_val = all_results[-1]
 
         log_odds = 0.0
         signals = []
         total_weight = 0.0
         strong_signals = []
 
-        # V9.1: đếm signal follow vs break để cân bằng sau
-        follow_votes = 0.0
-        break_votes = 0.0
+        # V9.2: Track cầu signals riêng
+        cau_follow_weight = 0.0
+        cau_break_weight = 0.0
+
+        cau_signals = {'follow_bet', 'follow_bet_strong', 'follow_dao',
+                       'follow_22', 'follow_33', 'cau_momentum'}
+        break_signals = {'break_bet_smart', 'reversal_signal'}
 
         for name, fn in cls._strategy_list():
             if name in STRATEGY_BLACKLIST:
@@ -1759,15 +1574,23 @@ class MultiStrategyPredictor:
                 continue
             weight = cls._get_adaptive_weight(name, weight)
 
-            # V9.1: PENALTY cho follow khi streak đã dài
             is_follow = (p == cur_streak_val)
-            if cur_streak_len >= 3 and is_follow:
-                # streak càng dài, follow càng bị phạt
-                penalty = 0.55 ** (cur_streak_len - 2)
-                weight = weight * max(penalty, 0.25)
-            # V9.1: BONUS cho break khi streak dài
-            if cur_streak_len >= 4 and not is_follow:
-                weight = weight * 1.15
+
+            # V9.2: CHỈ phạt follow khi KHÔNG phải cầu bệt rõ ràng
+            # Nếu là bệt thật thì KHÔNG phạt, ngược lại còn boost
+            if cau_type == 'bet':
+                # Bệt thật: boost follow signals, giảm break signals
+                if is_follow and name in cau_signals:
+                    weight *= 1.25
+                elif not is_follow and name in break_signals:
+                    # break chỉ mạnh khi cur_len lớn
+                    if cur_streak_len < 5:
+                        weight *= 0.6
+            else:
+                # Không phải bệt: phạt follow khi streak dài
+                if cur_streak_len >= 4 and is_follow:
+                    penalty = 0.65 ** (cur_streak_len - 3)
+                    weight = weight * max(penalty, 0.35)
 
             p_norm = max(0.51, min(conf / 100.0, 0.90))
             lr = p_norm / (1 - p_norm)
@@ -1777,10 +1600,10 @@ class MultiStrategyPredictor:
             log_odds += contrib
             total_weight += weight
 
-            if is_follow:
-                follow_votes += weight
-            else:
-                break_votes += weight
+            if name in cau_signals and is_follow:
+                cau_follow_weight += weight
+            if name in break_signals:
+                cau_break_weight += weight
 
             sig = {'name': name, 'prediction': p,
                    'confidence': conf, 'weight': round(weight, 2)}
@@ -1789,18 +1612,7 @@ class MultiStrategyPredictor:
                 strong_signals.append(sig)
 
         if not signals or total_weight == 0:
-            r = [v['result'] for v in valid]
-            cyc = cls._detect_cycle(r, max_period=6, min_repeats=2)
-            if cyc:
-                return {
-                    'prediction': cyc['next'], 'confidence': 55,
-                    'method': f"Chu kỳ {cyc['period']}",
-                    'signals': [], 'top_signals': [f"Chu kỳ {cyc['period']}"],
-                    'signals_strength': [],
-                    'reason': f"Phát hiện chu kỳ {cyc['period']}",
-                    'flipped': False,
-                }
-            streak, last = cls._tail_run(r)
+            streak, last = cls._tail_run(all_results)
             opp = 'Xỉu' if last == 'Tài' else 'Tài'
             return {
                 'prediction': opp, 'confidence': 52,
@@ -1808,7 +1620,7 @@ class MultiStrategyPredictor:
                 'signals': [], 'top_signals': [f'Bẻ {last}×{streak}'],
                 'signals_strength': [],
                 'reason': f'Bẻ streak {streak}',
-                'flipped': False,
+                'flipped': False, 'cau': cau_type,
             }
 
         scaled = log_odds / max(total_weight, 1.0) * 1.8
@@ -1820,18 +1632,33 @@ class MultiStrategyPredictor:
             pred = 'Xỉu'
             raw_conf = int((1 - p_tai) * 100)
 
-        # === V9.1: STRONG BALANCE ===
-        # Nếu đa số signals vote FOLLOW streak >= 3 → force BREAK
-        if cur_streak_len >= 3 and pred == cur_streak_val:
-            total_votes = follow_votes + break_votes
-            if total_votes > 0 and follow_votes / total_votes >= 0.65:
-                # bias quá mạnh về follow → force bẻ
-                pred = 'Xỉu' if cur_streak_val == 'Tài' else 'Tài'
-                raw_conf = max(raw_conf - 8, 55)
+        # === V9.2: XỬ LÝ CẦU THÔNG MINH ===
+        if cau_type == 'bet':
+            # Bệt thật: ưu tiên follow khi chưa quá dài
+            if cur_streak_len <= 4:
+                # Follow nếu signals đồng thuận
+                if cau_follow_weight > cau_break_weight * 1.3:
+                    pred = cur_streak_val
+                    raw_conf = max(raw_conf, 62)
+                elif pred != cur_streak_val and cau_follow_weight > 0.5:
+                    # Đang định bẻ nhưng bệt chưa đủ dài → đổi sang follow
+                    pred = cur_streak_val
+                    raw_conf = max(raw_conf - 3, 58)
+            elif cur_streak_len >= 7:
+                # Bệt quá dài: ưu tiên bẻ
+                opp = 'Xỉu' if cur_streak_val == 'Tài' else 'Tài'
+                if pred == cur_streak_val and cau_break_weight > 0.3:
+                    pred = opp
+                    raw_conf = max(raw_conf - 4, 58)
+        elif cau_type == 'dao_1_1':
+            # Cầu đảo: follow đảo
+            expected = 'Xỉu' if cur_streak_val == 'Tài' else 'Tài'
+            if cau_follow_weight > cau_break_weight:
+                pred = expected
+                raw_conf = max(raw_conf, 64)
 
-        # === V9.1: LONG STREAK SAFETY ===
-        # Streak >= 5: chắc chắn bẻ nếu confidence < 70
-        if cur_streak_len >= 5 and pred == cur_streak_val and raw_conf < 70:
+        # === V9.2: BẺ STREAK SAFETY (chỉ khi KHÔNG phải bệt) ===
+        if cau_type != 'bet' and cur_streak_len >= 6 and pred == cur_streak_val and raw_conf < 72:
             pred = 'Xỉu' if cur_streak_val == 'Tài' else 'Tài'
             raw_conf = max(raw_conf, 58)
 
@@ -1843,26 +1670,24 @@ class MultiStrategyPredictor:
 
         penalty = 0
         if entropy > 0.95:
-            penalty += 10
-        elif entropy > 0.85:
-            penalty += 6
-        elif entropy > 0.70:
-            penalty += 3
-        if agreement < 0.6:
             penalty += 8
-        elif agreement < 0.75:
+        elif entropy > 0.85:
             penalty += 4
+        if agreement < 0.6:
+            penalty += 6
+        elif agreement < 0.75:
+            penalty += 3
         bonus = 4 if agreement >= 0.9 and entropy < 0.6 else 0
 
-        if regime == 'alternating' and pred == ('Xỉu' if recent[-1] == 'Tài' else 'Tài'):
+        # V9.2: bonus theo cầu
+        if cau_type == 'bet' and pred == cur_streak_val:
             bonus += 3
-        elif regime == 'streaky' and cur_streak_len >= 3:
-            # V9.1: regime streaky + bẻ → bonus
-            if pred != cur_streak_val:
-                bonus += 4
+        elif cau_type == 'dao_1_1' and pred != cur_streak_val:
+            bonus += 3
 
         final_conf = max(50, min(raw_conf - penalty + bonus, 84))
 
+        # Strong signals override khi conf thấp
         if final_conf < 55 and strong_signals:
             strong_votes = {'Tài': 0, 'Xỉu': 0}
             for s in strong_signals:
@@ -1873,12 +1698,6 @@ class MultiStrategyPredictor:
             elif strong_votes['Xỉu'] > strong_votes['Tài'] * 1.4:
                 pred = 'Xỉu'
                 final_conf = max(55, final_conf)
-            elif final_conf < 52:
-                if cur_streak_len >= 3:
-                    pred = 'Xỉu' if cur_streak_val == 'Tài' else 'Tài'
-                else:
-                    pred = 'Xỉu' if recent[-1] == 'Tài' else 'Tài'
-                final_conf = 54
 
         signals_sorted = sorted(
             signals,
@@ -1887,6 +1706,15 @@ class MultiStrategyPredictor:
         )
         top_signals = [SIGNAL_NAMES.get(s['name'], s['name'])
                        for s in signals_sorted[:5]]
+
+        cau_label = {
+            'bet': f'Bệt {cur_streak_val}×{cur_streak_len}',
+            'dao_1_1': 'Cầu đảo 1-1',
+            'cau_2_2': 'Cầu 2-2',
+            'cau_3_3': 'Cầu 3-3',
+            'hon_hop': 'Cầu hỗn hợp',
+            'unknown': 'Chưa đủ DL',
+        }.get(cau_type, cau_type)
 
         result = {
             'prediction': pred, 'confidence': final_conf,
@@ -1903,11 +1731,11 @@ class MultiStrategyPredictor:
                 }
                 for s in signals_sorted[:8]
             ],
-            'reason': (f"Regime={regime} · streak={cur_streak_len} · "
-                       f"{len(signals)} tín hiệu · entropy={entropy:.2f} · "
-                       f"đồng thuận={agreement:.0%}"),
+            'reason': (f"{cau_label} · {len(signals)} tín hiệu · "
+                       f"entropy={entropy:.2f} · đồng thuận={agreement:.0%}"),
             'flipped': False,
-            'regime': regime,
+            'cau': cau_type,
+            'cau_label': cau_label,
         }
 
         fail_streak = cls._check_failure_streak(log)
@@ -2077,14 +1905,14 @@ _load_log()
 
 
 # =====================================================================
-# HTML - giữ nguyên giao diện
+# HTML
 # =====================================================================
 HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="vi">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>LE MINH MD5</title>
+<title>LE MINH MD5 V2</title>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <style>
@@ -2103,122 +1931,49 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   --shadow-lg:0 12px 32px rgba(219,39,119,.1);
 }
 *{box-sizing:border-box;margin:0;padding:0;font-family:'Plus Jakarta Sans',sans-serif}
-body{
-  background:linear-gradient(135deg,#fdf2f8 0%,#f0f9ff 50%,#fef3f9 100%);
-  background-attachment:fixed;color:var(--text);
-  min-height:100vh;padding-bottom:30px;font-size:13px;
-}
-body::before{
-  content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
-  background:
-    radial-gradient(circle at 15% 20%, rgba(251,207,232,.35), transparent 40%),
-    radial-gradient(circle at 85% 80%, rgba(167,243,208,.28), transparent 40%);
-}
-.header{
-  background:rgba(255,255,255,.85);backdrop-filter:blur(20px);
-  -webkit-backdrop-filter:blur(20px);border-bottom:1px solid var(--border-pink);
-  padding:12px 16px;display:flex;justify-content:space-between;align-items:center;
-  position:sticky;top:0;z-index:100;box-shadow:0 2px 12px rgba(219,39,119,.06);
-}
+body{background:linear-gradient(135deg,#fdf2f8 0%,#f0f9ff 50%,#fef3f9 100%);background-attachment:fixed;color:var(--text);min-height:100vh;padding-bottom:30px;font-size:13px}
+body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;background:radial-gradient(circle at 15% 20%, rgba(251,207,232,.35), transparent 40%),radial-gradient(circle at 85% 80%, rgba(167,243,208,.28), transparent 40%)}
+.header{background:rgba(255,255,255,.85);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-bottom:1px solid var(--border-pink);padding:12px 16px;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:100;box-shadow:0 2px 12px rgba(219,39,119,.06)}
 .logo{font-size:16px;font-weight:800;display:flex;align-items:center;gap:8px}
-.logo-text{
-  background:linear-gradient(90deg,#ec4899,#a855f7,#0ea5e9);
-  background-size:200% auto;-webkit-background-clip:text;
-  -webkit-text-fill-color:transparent;animation:shine 4s linear infinite;
-}
+.logo-text{background:linear-gradient(90deg,#ec4899,#a855f7,#0ea5e9);background-size:200% auto;-webkit-background-clip:text;-webkit-text-fill-color:transparent;animation:shine 4s linear infinite}
 @keyframes shine{to{background-position:200% center}}
-.logo span.ver{
-  font-size:9px;background:linear-gradient(135deg,#ec4899,#a855f7);
-  color:#fff;padding:3px 8px;border-radius:20px;font-weight:800;letter-spacing:.5px;
-  box-shadow:0 2px 6px rgba(168,85,247,.3);
-}
-.logo .md5-badge{
-  font-size:9px;background:linear-gradient(135deg,#0ea5e9,#0284c7);
-  color:#fff;padding:3px 8px;border-radius:20px;font-weight:800;letter-spacing:.5px;
-  box-shadow:0 2px 6px rgba(2,132,199,.3);margin-left:4px;
-}
+.logo span.ver{font-size:9px;background:linear-gradient(135deg,#ec4899,#a855f7);color:#fff;padding:3px 8px;border-radius:20px;font-weight:800;letter-spacing:.5px;box-shadow:0 2px 6px rgba(168,85,247,.3)}
+.logo .md5-badge{font-size:9px;background:linear-gradient(135deg,#0ea5e9,#0284c7);color:#fff;padding:3px 8px;border-radius:20px;font-weight:800;letter-spacing:.5px;box-shadow:0 2px 6px rgba(2,132,199,.3);margin-left:4px}
 .actions{display:flex;gap:8px;align-items:center}
 .clock{font-size:11px;color:var(--muted);font-weight:600;font-variant-numeric:tabular-nums}
-.btn{
-  background:#fff;color:var(--text-soft);border:1px solid var(--border);
-  padding:7px 12px;border-radius:9px;font-weight:700;font-size:12px;cursor:pointer;
-  transition:.2s;box-shadow:var(--shadow-sm);
-}
+.btn{background:#fff;color:var(--text-soft);border:1px solid var(--border);padding:7px 12px;border-radius:9px;font-weight:700;font-size:12px;cursor:pointer;transition:.2s;box-shadow:var(--shadow-sm)}
 .btn:hover{background:var(--card-soft);transform:translateY(-1px);box-shadow:var(--shadow)}
-.btn:active{transform:scale(.95)}
 .btn-reset{background:linear-gradient(135deg,#fee2e2,#fce7f3);color:var(--fail);border-color:var(--border-pink)}
 .spin{animation:spin .5s}
 @keyframes spin{to{transform:rotate(360deg)}}
-
 .wrap{max-width:780px;margin:0 auto;padding:12px;position:relative;z-index:1}
-
-.pred-box{
-  background:linear-gradient(135deg,#ffffff,#fdf2f8);
-  border:1px solid var(--border-pink);border-radius:16px;padding:18px;
-  margin-bottom:12px;position:relative;overflow:hidden;box-shadow:var(--shadow-lg);
-}
-.pred-box::before{
-  content:'';position:absolute;inset:0;
-  background:linear-gradient(45deg,transparent 30%,rgba(251,207,232,.4) 50%,transparent 70%);
-  animation:sweep 4s linear infinite;
-}
-@keyframes sweep{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}
+.pred-box{background:linear-gradient(135deg,#ffffff,#fdf2f8);border:1px solid var(--border-pink);border-radius:16px;padding:18px;margin-bottom:12px;position:relative;overflow:hidden;box-shadow:var(--shadow-lg)}
 .pred-row{display:flex;align-items:center;justify-content:space-between;position:relative;z-index:1}
 .pred-label{font-size:10px;color:var(--muted);text-transform:uppercase;font-weight:700;letter-spacing:.5px;margin-bottom:6px}
 .pred-value{font-size:34px;font-weight:800;line-height:1;letter-spacing:-1px}
 .pred-value.tai{color:var(--tai);text-shadow:0 2px 12px rgba(2,132,199,.2)}
 .pred-value.xiu{color:var(--xiu);text-shadow:0 2px 12px rgba(219,39,119,.2)}
-.pred-conf-badge{
-  background:linear-gradient(135deg,#fce7f3,#fbcfe8);
-  border:1px solid var(--border-pink);color:var(--xiu);
-  padding:7px 16px;border-radius:20px;font-weight:800;font-size:15px;
-  font-variant-numeric:tabular-nums;box-shadow:0 2px 8px rgba(236,72,153,.15);
-}
+.cau-badge{display:inline-block;font-size:10px;padding:3px 10px;border-radius:12px;background:linear-gradient(135deg,#fef3c7,#fde68a);color:#92400e;font-weight:700;margin-top:8px}
+.pred-conf-badge{background:linear-gradient(135deg,#fce7f3,#fbcfe8);border:1px solid var(--border-pink);color:var(--xiu);padding:7px 16px;border-radius:20px;font-weight:800;font-size:15px;font-variant-numeric:tabular-nums;box-shadow:0 2px 8px rgba(236,72,153,.15)}
 .conf-bar{height:5px;background:var(--bg-1);border-radius:3px;overflow:hidden;margin-top:14px;position:relative;z-index:1}
-.conf-bar-fill{
-  height:100%;background:linear-gradient(90deg,#ec4899,#a855f7,#0ea5e9);
-  border-radius:3px;transition:width 1s ease;
-  box-shadow:0 0 10px rgba(236,72,153,.4);
-}
-
+.conf-bar-fill{height:100%;background:linear-gradient(90deg,#ec4899,#a855f7,#0ea5e9);border-radius:3px;transition:width 1s ease;box-shadow:0 0 10px rgba(236,72,153,.4)}
 .scorebar{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px}
-.sc{
-  background:#fff;border:1px solid var(--border);border-radius:11px;
-  padding:12px 8px;text-align:center;transition:.2s;box-shadow:var(--shadow-sm);
-  position:relative;overflow:hidden;
-}
-.sc::before{
-  content:'';position:absolute;top:0;left:0;right:0;height:3px;
-  background:linear-gradient(90deg,transparent,currentColor,transparent);opacity:.15;
-}
+.sc{background:#fff;border:1px solid var(--border);border-radius:11px;padding:12px 8px;text-align:center;transition:.2s;box-shadow:var(--shadow-sm)}
 .sc:hover{transform:translateY(-2px);box-shadow:var(--shadow);border-color:var(--border-pink)}
 .sc-l{font-size:9px;color:var(--muted);text-transform:uppercase;font-weight:700;margin-bottom:4px;letter-spacing:.5px}
-.sc-v{font-size:22px;font-weight:800;font-variant-numeric:tabular-nums;transition:.3s}
+.sc-v{font-size:22px;font-weight:800;font-variant-numeric:tabular-nums}
 .sc-v.ok{color:var(--ok)}.sc-v.fail{color:var(--fail)}.sc-v.warn{color:var(--warn)}
-.sc-v.pulse{animation:pulse .4s}
-@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.15)}}
-
 .tbl{background:#fff;border:1px solid var(--border);border-radius:14px;overflow:hidden;max-height:65vh;overflow-y:auto;box-shadow:var(--shadow)}
 table{width:100%;border-collapse:separate;border-spacing:0}
-th{
-  background:linear-gradient(135deg,#fdf2f8,#f0f9ff);
-  color:var(--text-soft);font-size:10px;font-weight:700;
-  padding:12px 6px;text-align:center;border-bottom:1px solid var(--border-pink);
-  position:sticky;top:0;z-index:10;text-transform:uppercase;letter-spacing:.3px;
-}
-td{padding:10px 6px;text-align:center;border-bottom:1px solid var(--bg-1);font-size:12px;font-weight:600;transition:.15s}
+th{background:linear-gradient(135deg,#fdf2f8,#f0f9ff);color:var(--text-soft);font-size:10px;font-weight:700;padding:12px 6px;text-align:center;border-bottom:1px solid var(--border-pink);position:sticky;top:0;z-index:10;text-transform:uppercase;letter-spacing:.3px}
+td{padding:10px 6px;text-align:center;border-bottom:1px solid var(--bg-1);font-size:12px;font-weight:600}
 tr:hover td{background:#fdf2f8}
-.row-next{background:linear-gradient(90deg,#fdf2f8,#fff);border-left:3px solid var(--xiu);animation:glow 2.5s ease infinite}
-@keyframes glow{
-  0%,100%{box-shadow:inset 0 0 20px rgba(236,72,153,.06)}
-  50%{box-shadow:inset 0 0 25px rgba(236,72,153,.18)}
-}
+.row-next{background:linear-gradient(90deg,#fdf2f8,#fff);border-left:3px solid var(--xiu)}
 .badge{display:inline-block;padding:3px 10px;border-radius:14px;font-size:10px;font-weight:800;min-width:52px;text-align:center}
 .b-tai{background:var(--tai-bg);color:var(--tai);border:1px solid #bae6fd}
 .b-xiu{background:var(--xiu-bg);color:var(--xiu);border:1px solid var(--border-pink)}
 .b-none{background:var(--bg-1);color:var(--muted);border:1px solid var(--border)}
-.b-ok{background:var(--ok-bg);color:var(--ok);border:1px solid #6ee7b7;font-size:10px;padding:4px 10px;font-weight:800;animation:checkIn .3s}
-@keyframes checkIn{from{transform:scale(0)}to{transform:scale(1)}}
+.b-ok{background:var(--ok-bg);color:var(--ok);border:1px solid #6ee7b7;font-size:10px;padding:4px 10px;font-weight:800}
 .b-fail{background:var(--fail-bg);color:var(--fail);border:1px solid #fca5a5;font-size:10px;padding:4px 10px;font-weight:800}
 .b-pending{background:var(--warn-bg);color:var(--warn);border:1px solid #fcd34d;font-size:10px;padding:4px 10px;font-weight:800;animation:blink 2s infinite}
 @keyframes blink{0%,100%{opacity:1}50%{opacity:.65}}
@@ -2226,14 +1981,7 @@ tr:hover td{background:#fdf2f8}
 .pred-mini{font-size:11px;font-weight:800}
 .pred-mini.tai{color:var(--tai)}.pred-mini.xiu{color:var(--xiu)}
 .loading{text-align:center;padding:30px;color:var(--xiu);font-weight:600}
-
-@media(max-width:520px){
-  th,td{padding:8px 4px;font-size:11px}
-  .clock{display:none}
-  .badge{min-width:44px;font-size:9px}
-  .sc-v{font-size:17px}
-  .pred-value{font-size:26px}
-}
+@media(max-width:520px){th,td{padding:8px 4px;font-size:11px}.clock{display:none}.badge{min-width:44px;font-size:9px}.sc-v{font-size:17px}.pred-value{font-size:26px}}
 </style>
 </head>
 <body>
@@ -2255,20 +2003,17 @@ tr:hover td{background:#fdf2f8}
             <div>
                 <div class="pred-label">Dự đoán phiên tiếp theo</div>
                 <div class="pred-value" id="pred-value">Đang tải...</div>
+                <div class="cau-badge" id="cau-badge">—</div>
             </div>
             <div class="pred-conf-badge" id="conf-badge">--%</div>
         </div>
-        <div class="conf-bar">
-            <div class="conf-bar-fill" id="conf-bar" style="width:0%"></div>
-        </div>
+        <div class="conf-bar"><div class="conf-bar-fill" id="conf-bar" style="width:0%"></div></div>
     </div>
-    
     <div class="scorebar">
         <div class="sc"><div class="sc-l">✓ Đúng</div><div class="sc-v ok" id="sc-correct">0</div></div>
         <div class="sc"><div class="sc-l">✗ Sai</div><div class="sc-v fail" id="sc-wrong">0</div></div>
         <div class="sc"><div class="sc-l">⏳ Chờ</div><div class="sc-v warn" id="sc-pending">0</div></div>
     </div>
-    
     <div class="tbl">
         <table>
             <thead><tr><th>Phiên</th><th>Dự đoán</th><th>Kết quả</th><th>Đúng/Sai</th></tr></thead>
@@ -2278,13 +2023,7 @@ tr:hover td{background:#fdf2f8}
 </div>
 <script>
 let isResetting=false;
-
-function manualRefresh(btn){
-    btn.classList.add('spin');
-    setTimeout(()=>btn.classList.remove('spin'),500);
-    fetchData();
-}
-
+function manualRefresh(btn){btn.classList.add('spin');setTimeout(()=>btn.classList.remove('spin'),500);fetchData();}
 async function fetchData(){
     if(isResetting)return;
     document.getElementById('clock').innerText=new Date().toLocaleTimeString('vi-VN');
@@ -2295,35 +2034,27 @@ async function fetchData(){
         renderPred(d.prediction,d.rows||[]);
     }catch(e){console.error(e);}
 }
-
 function renderScore(ai){
-    const cv=document.getElementById('sc-correct');
-    const wv=document.getElementById('sc-wrong');
-    const pv=document.getElementById('sc-pending');
-    const newC=ai.correct||0, newW=ai.wrong||0, newP=ai.pending||0;
-    if(parseInt(cv.innerText)!==newC && cv.innerText!=='0'){
-        cv.classList.add('pulse');setTimeout(()=>cv.classList.remove('pulse'),400);
-    }
-    cv.innerText=newC;wv.innerText=newW;pv.innerText=newP;
+    document.getElementById('sc-correct').innerText=ai.correct||0;
+    document.getElementById('sc-wrong').innerText=ai.wrong||0;
+    document.getElementById('sc-pending').innerText=ai.pending||0;
 }
-
 function renderPred(pred, rows){
     const pv=document.getElementById('pred-value');
     const cb=document.getElementById('conf-badge');
     const bar=document.getElementById('conf-bar');
-    if(!pred){
-        pv.innerText='—';pv.className='pred-value';
-        cb.innerText='--%';bar.style.width='0%';
-    } else {
+    const cauB=document.getElementById('cau-badge');
+    if(!pred){pv.innerText='—';pv.className='pred-value';cb.innerText='--%';bar.style.width='0%';cauB.innerText='—';}
+    else{
         const p=pred.prediction, c=pred.confidence||0;
         pv.innerText=p;
         pv.className='pred-value '+(p==='Tài'?'tai':'xiu');
         cb.innerText=c+'%';
         bar.style.width=c+'%';
+        cauB.innerText=pred.cau_label||'—';
     }
     renderTable(rows);
 }
-
 function renderTable(rows){
     const tb=document.getElementById('tbody');
     if(!rows.length){tb.innerHTML='<tr><td colspan="4" class="loading">Chưa có dữ liệu.</td></tr>';return;}
@@ -2348,31 +2079,19 @@ function renderTable(rows){
     });
     tb.innerHTML=html;
 }
-
 async function confirmReset(){
-    Swal.fire({
-        title:'Reset?',text:'Xoá toàn bộ cache và log?',icon:'warning',
-        background:'#fff',color:'#1e293b',showCancelButton:true,
-        confirmButtonColor:'#ec4899',cancelButtonColor:'#94a3b8',
-        confirmButtonText:'Đồng ý',cancelButtonText:'Hủy'
-    }).then(async r=>{
+    Swal.fire({title:'Reset?',text:'Xoá toàn bộ cache và log?',icon:'warning',background:'#fff',color:'#1e293b',showCancelButton:true,confirmButtonColor:'#ec4899',cancelButtonColor:'#94a3b8',confirmButtonText:'Đồng ý',cancelButtonText:'Hủy'}).then(async r=>{
         if(!r.isConfirmed)return;
         isResetting=true;
         try{
             const res=await fetch('/api/reset',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
             const d=await res.json();
             isResetting=false;
-            if(d.status==='success'){
-                fetchData();
-                Swal.fire({title:'OK!',text:'Đã reset.',icon:'success',background:'#fff',color:'#1e293b',confirmButtonColor:'#ec4899'});
-            } else throw new Error(d.message||'Lỗi');
-        }catch(e){
-            isResetting=false;
-            Swal.fire({title:'Lỗi!',text:e.message,icon:'error',background:'#fff',color:'#1e293b'});
-        }
+            if(d.status==='success'){fetchData();Swal.fire({title:'OK!',text:'Đã reset.',icon:'success',background:'#fff',color:'#1e293b',confirmButtonColor:'#ec4899'});}
+            else throw new Error(d.message||'Lỗi');
+        }catch(e){isResetting=false;Swal.fire({title:'Lỗi!',text:e.message,icon:'error',background:'#fff',color:'#1e293b'});}
     });
 }
-
 fetchData();
 setInterval(fetchData,5000);
 </script>
@@ -2426,6 +2145,8 @@ def history():
                 'prediction': pred['prediction'],
                 'confidence': pred['confidence'],
                 'method': pred['method'],
+                'cau_label': pred.get('cau_label', '—'),
+                'cau': pred.get('cau', 'unknown'),
             }
         })
     except Exception as e:
@@ -2440,7 +2161,7 @@ def lc79md5():
         if not success:
             return jsonify({'error': 'Không thể kết nối MD5 API'}), 500
         if not valid:
-            return jsonify({'Id': 'LE MINH V9.1 MD5', 'Phien': None,
+            return jsonify({'Id': 'LE MINH V9.2 MD5', 'Phien': None,
                             'Du_doan': None, 'message': 'Chưa có dữ liệu'})
         last = valid[-1]
         next_phien = last['phien'] + 1
@@ -2449,7 +2170,7 @@ def lc79md5():
         stats = _honest_stats(valid)
         ai_stats = _log_stats(PREDICTION_LOG)
         return jsonify({
-            'Id': 'LE MINH V9.1 MD5',
+            'Id': 'LE MINH V9.2 MD5',
             'Phien': str(next_phien),
             'Ket_qua_truoc': last['result'].lower(),
             'Xuc_xac_truoc': last['dice'],
@@ -2457,6 +2178,7 @@ def lc79md5():
             'Du_doan': pred['prediction'],
             'Do_tin_cay': f"{pred['confidence']}%",
             'Phuong_phap': pred['method'],
+            'Loai_cau': pred.get('cau_label', '—'),
             'Tin_hieu_chinh': pred.get('top_signals', []),
             'Ly_do': pred['reason'],
             'Da_dao': pred.get('flipped', False),
@@ -2468,8 +2190,7 @@ def lc79md5():
             'AI_dung': ai_stats['correct'],
             'AI_sai': ai_stats['wrong'],
             'AI_cho': ai_stats['pending'],
-            'Ti_le_AI': round(
-                ai_stats['correct'] / max(ai_stats['evaluated'], 1) * 100, 1),
+            'Ti_le_AI': round(ai_stats['correct'] / max(ai_stats['evaluated'], 1) * 100, 1),
         })
     except Exception as e:
         traceback.print_exc()
@@ -2483,7 +2204,7 @@ def lc79():
         if not success:
             return jsonify({'error': 'Không thể kết nối API'}), 500
         if not valid:
-            return jsonify({'Id': 'LE MINH V9.1', 'Phien': None, 'Du_doan': None})
+            return jsonify({'Id': 'LE MINH V9.2', 'Phien': None, 'Du_doan': None})
         last = valid[-1]
         next_phien = last['phien'] + 1
         pred = MultiStrategyPredictor.predict(valid, log=PREDICTION_LOG)
@@ -2491,12 +2212,13 @@ def lc79():
         stats = _honest_stats(valid)
         ai_stats = _log_stats(PREDICTION_LOG)
         return jsonify({
-            'Id': 'LE MINH V9.1',
+            'Id': 'LE MINH V9.2',
             'Phien': str(next_phien),
             'Ket_qua_truoc': last['result'].lower(),
             'Du_doan': pred['prediction'],
             'Do_tin_cay': f"{pred['confidence']}%",
             'Phuong_phap': pred['method'],
+            'Loai_cau': pred.get('cau_label', '—'),
             'Tin_hieu_chinh': pred.get('top_signals', []),
             'Ly_do': pred['reason'],
             'Da_dao': pred.get('flipped', False),
@@ -2508,8 +2230,7 @@ def lc79():
             'AI_dung': ai_stats['correct'],
             'AI_sai': ai_stats['wrong'],
             'AI_cho': ai_stats['pending'],
-            'Ti_le_AI': round(
-                ai_stats['correct'] / max(ai_stats['evaluated'], 1) * 100, 1),
+            'Ti_le_AI': round(ai_stats['correct'] / max(ai_stats['evaluated'], 1) * 100, 1),
         })
     except Exception as e:
         traceback.print_exc()
@@ -2529,7 +2250,7 @@ def predict():
         pred = MultiStrategyPredictor.predict(valid, log=PREDICTION_LOG)
         _log_prediction(next_phien, pred)
         return jsonify({
-            'version': 'V9.1',
+            'version': 'V9.2',
             'last_phien': last['phien'],
             'next_phien': next_phien,
             'last_result': last['result'],
@@ -2538,6 +2259,8 @@ def predict():
             'prediction': pred['prediction'],
             'confidence': pred['confidence'],
             'method': pred['method'],
+            'cau': pred.get('cau', 'unknown'),
+            'cau_label': pred.get('cau_label', '—'),
             'top_signals': pred.get('top_signals', []),
             'signals_strength': pred.get('signals_strength', []),
             'reason': pred['reason'],
@@ -2584,18 +2307,21 @@ def algo_info():
         pred = MultiStrategyPredictor.predict(valid, log=PREDICTION_LOG)
         results = [v['result'] for v in valid]
         cyc = MultiStrategyPredictor._detect_cycle(results, max_period=6, min_repeats=2)
+        cau, cur_len = MultiStrategyPredictor._detect_cau_type(results)
         return jsonify({
-            'version': 'V9.1',
+            'version': 'V9.2',
             'prediction': pred['prediction'],
             'confidence': pred['confidence'],
             'method': pred['method'],
+            'cau': cau,
+            'cau_label': pred.get('cau_label', '—'),
+            'cau_streak_len': cur_len,
             'top_signals': pred.get('top_signals', []),
             'signals_strength': pred.get('signals_strength', []),
             'all_signals': pred['signals'],
             'signals_count': len(pred['signals']),
             'flipped': pred.get('flipped', False),
             'reason': pred['reason'],
-            'regime': pred.get('regime'),
             'recent_runs': _run_lengths(results[-40:]),
             'entropy': round(_entropy(results[-20:]), 3),
             'detected_cycle': {
