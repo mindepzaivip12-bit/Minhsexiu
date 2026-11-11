@@ -15,7 +15,6 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)
 
-# === CẬP NHẬT API MỚI ===
 API_URL_MD5 = (
     "https://wtx.tele68.com/v1/tx/lite-sessions"
     "?cp=R&cl=R&pf=web&at=1d5d150f5b59bf7b20e283c525b4a6b5"
@@ -36,220 +35,10 @@ SIGNAL_NAMES = {
     'api_main': 'API Chính',
     'api_invert': 'API Đảo',
     'math_cau': 'Toán Cầu/Xu Hướng',
-    'math_pattern': 'Mẫu 13 Ký Tự',
+    'math_markov': 'Toán Markov',
+    'math_streak': 'Toán Chuỗi Thắng/Thua',
+    'math_balance': 'Toán Cân Bằng',
 }
-
-# ========== BẢNG TRA CỨU 13 KÝ TỰ ==========
-TABLE_13_RAW = {
-    "TTTTTTTTTTTTT": "Tài", "TTTTTTTTTTTTX": "Tài", "TTTTTTTTTTTXT": "Xỉu", "TTTTTTTTTTTXX": "Xỉu",
-    "TTTTTTTTTTXTT": "Tài", "TTTTTTTTTTXTX": "Tài", "TTTTTTTTTTXXT": "Tài", "TTTTTTTTTTXXX": "Tài",
-    "TTTTTTTTTXTTT": "Tài", "TTTTTTTTTXTTX": "Tài", "TTTTTTTTTXTXT": "Xỉu", "TTTTTTTTTXTXX": "Xỉu",
-    "TTTTTTTTTXXTT": "Tài", "TTTTTTTTTXXTX": "Tài", "TTTTTTTTTXXXT": "Xỉu", "TTTTTTTTTXXXX": "Tài",
-    "TTTTTTTTXTTTT": "Tài", "TTTTTTTTXTTTX": "Tài", "TTTTTTTTXTTXT": "Xỉu", "TTTTTTTTXTTXX": "Xỉu",
-    "TTTTTTTTXTXTT": "Tài", "TTTTTTTTXTXTX": "Tài", "TTTTTTTTXTXXT": "Tài", "TTTTTTTTXTXXX": "Tài",
-    "TTTTTTTTXXTTT": "Tài", "TTTTTTTTXXTTX": "Tài", "TTTTTTTTXXTXT": "Xỉu", "TTTTTTTTXXTXX": "Xỉu",
-    "TTTTTTTTXXXTT": "Tài", "TTTTTTTTXXXTX": "Tài", "TTTTTTTTXXXXT": "Xỉu", "TTTTTTTTXXXXX": "Xỉu",
-    "TTTTTTTXTTTTT": "Tài", "TTTTTTTXTTTTX": "Tài", "TTTTTTTXTTTXT": "Xỉu", "TTTTTTTXTTTXX": "Xỉu",
-    "TTTTTTTXTTXTT": "Tài", "TTTTTTTXTTXTX": "Tài", "TTTTTTTXTTXXT": "Tài", "TTTTTTTXTTXXX": "Xỉu",
-    "TTTTTTTXTXTTT": "Tài", "TTTTTTTXTXTTX": "Tài", "TTTTTTTXTXTXT": "Xỉu", "TTTTTTTXTXTXX": "Xỉu",
-    "TTTTTTTXTXXTT": "Tài", "TTTTTTTXTXXTX": "Tài", "TTTTTTTXTXXXT": "Xỉu", "TTTTTTTXTXXXX": "Xỉu",
-    "TTTTTTTXXTTTT": "Tài", "TTTTTTTXXTTTX": "Tài", "TTTTTTTXXTTXT": "Xỉu", "TTTTTTTXXTTXX": "Xỉu",
-    "TTTTTTTXXTXTT": "Tài", "TTTTTTTXXTXTX": "Tài", "TTTTTTTXXTXXT": "Tài", "TTTTTTTXXTXXX": "Tài",
-    "TTTTTTTXXXTTT": "Tài", "TTTTTTTXXXTTX": "Tài", "TTTTTTTXXXTXT": "Xỉu", "TTTTTTTXXXTXX": "Xỉu",
-    "TTTTTTTXXXXTT": "Tài", "TTTTTTTXXXXTX": "Tài", "TTTTTTTXXXXXT": "Xỉu", "TTTTTTTXXXXXX": "Xỉu",
-    "TTTTTTXTTTTTT": "Tài", "TTTTTTXTTTTTX": "Tài", "TTTTTTXTTTTXT": "Xỉu", "TTTTTTXTTTTXX": "Xỉu",
-    "TTTTTTXTTTXTT": "Tài", "TTTTTTXTTTXTX": "Tài", "TTTTTTXTTTXXT": "Tài", "TTTTTTXTTTXXX": "Tài",
-    "TTTTTTXTTXTTT": "Tài", "TTTTTTXTTXTTX": "Tài", "TTTTTTXTTXTXT": "Xỉu", "TTTTTTXTTXTXX": "Xỉu",
-    "TTTTTTXTTXXTT": "Tài", "TTTTTTXTTXXTX": "Tài", "TTTTTTXTTXXXT": "Xỉu", "TTTTTTXTTXXXX": "Tài",
-    "TTTTTTXTXTTTT": "Tài", "TTTTTTXTXTTTX": "Tài", "TTTTTTXTXTTXT": "Xỉu", "TTTTTTXTXTTXX": "Xỉu",
-    "TTTTTTXTXTXTT": "Tài", "TTTTTTXTXTXTX": "Tài", "TTTTTTXTXTXXT": "Tài", "TTTTTTXTXTXXX": "Tài",
-    "TTTTTTXTXXTTT": "Tài", "TTTTTTXTXXTTX": "Xỉu", "TTTTTTXTXXTXT": "Xỉu", "TTTTTTXTXXTXX": "Xỉu",
-    "TTTTTTXTXXXTT": "Tài", "TTTTTTXTXXXTX": "Tài", "TTTTTTXTXXXXT": "Xỉu", "TTTTTTXTXXXXX": "Xỉu",
-    "TTTTTTXXTTTTT": "Tài", "TTTTTTXXTTTTX": "Tài", "TTTTTTXXTTTXT": "Xỉu", "TTTTTTXXTTTXX": "Xỉu",
-    "TTTTTTXXTTXTT": "Tài", "TTTTTTXXTTXTX": "Tài", "TTTTTTXXTTXXT": "Tài", "TTTTTTXXTTXXX": "Xỉu",
-    "TTTTTTXXTXTTT": "Tài", "TTTTTTXXTXTTX": "Tài", "TTTTTTXXTXTXT": "Xỉu", "TTTTTTXXTXTXX": "Xỉu",
-    "TTTTTTXXTXXTT": "Tài", "TTTTTTXXTXXTX": "Tài", "TTTTTTXXTXXXT": "Xỉu", "TTTTTTXXTXXXX": "Xỉu",
-    "TTTTTTXXXTTTT": "Tài", "TTTTTTXXXTTTX": "Tài", "TTTTTTXXXTTXT": "Xỉu", "TTTTTTXXXTTXX": "Xỉu",
-    "TTTTTTXXXTXTT": "Tài", "TTTTTTXXXTXTX": "Tài", "TTTTTTXXXTXXT": "Tài", "TTTTTTXXXTXXX": "Xỉu",
-    "TTTTTTXXXXTTT": "Tài", "TTTTTTXXXXTTX": "Tài", "TTTTTTXXXXTXT": "Xỉu", "TTTTTTXXXXTXX": "Xỉu",
-    "TTTTTTXXXXXTT": "Tài", "TTTTTTXXXXXTX": "Tài", "TTTTTTXXXXXXT": "Xỉu", "TTTTTTXXXXXXX": "Xỉu",
-    "TTTTTXTTTTTTT": "Tài", "TTTTTXTTTTTTX": "Tài", "TTTTTXTTTTTXT": "Xỉu", "TTTTTXTTTTTXX": "Xỉu",
-    "TTTTTXTTTTXTT": "Tài", "TTTTTXTTTTXTX": "Tài", "TTTTTXTTTTXXT": "Tài", "TTTTTXTTTTXXX": "Tài",
-    "TTTTTXTTTXTTT": "Tài", "TTTTTXTTTXTTX": "Tài", "TTTTTXTTTXTXT": "Xỉu", "TTTTTXTTTXTXX": "Xỉu",
-    "TTTTTXTTTXXTT": "Tài", "TTTTTXTTTXXTX": "Tài", "TTTTTXTTTXXXT": "Xỉu", "TTTTTXTTTXXXX": "Tài",
-    "TTTTTXTTXTTTT": "Tài", "TTTTTXTTXTTTX": "Tài", "TTTTTXTTXTTXT": "Xỉu", "TTTTTXTTXTTXX": "Xỉu",
-    "TTTTTXTTXTXTT": "Tài", "TTTTTXTTXTXTX": "Tài", "TTTTTXTTXTXXT": "Xỉu", "TTTTTXTTXTXXX": "Xỉu",
-    "TTTTTXTTXXTTT": "Tài", "TTTTTXTTXXTTX": "Tài", "TTTTTXTTXXTXT": "Xỉu", "TTTTTXTTXXTXX": "Xỉu",
-    "TTTTTXTTXXXTT": "Tài", "TTTTTXTTXXXTX": "Tài", "TTTTTXTTXXXXT": "Xỉu", "TTTTTXTTXXXXX": "Xỉu",
-    "TTTTTXTXTTTTT": "Tài", "TTTTTXTXTTTTX": "Tài", "TTTTTXTXTTTXT": "Xỉu", "TTTTTXTXTTTXX": "Xỉu",
-    "TTTTTXTXTTXTT": "Tài", "TTTTTXTXTTXTX": "Tài", "TTTTTXTXTTXXT": "Tài", "TTTTTXTXTTXXX": "Xỉu",
-    "TTTTTXTXTXTTT": "Tài", "TTTTTXTXTXTTX": "Tài", "TTTTTXTXTXTXT": "Xỉu", "TTTTTXTXTXTXX": "Xỉu",
-    "TTTTTXTXTXXTT": "Tài", "TTTTTXTXTXXTX": "Tài", "TTTTTXTXTXXXT": "Xỉu", "TTTTTXTXTXXXX": "Tài",
-    "TTTTTXTXXTTTT": "Tài", "TTTTTXTXXTTTX": "Tài", "TTTTTXTXXTTXT": "Xỉu", "TTTTTXTXXTTXX": "Xỉu",
-    "TTTTTXTXXTXTT": "Tài", "TTTTTXTXXTXTX": "Tài", "TTTTTXTXXTXXT": "Tài", "TTTTTXTXXTXXX": "Tài",
-    "TTTTTXTXXXTTT": "Xỉu", "TTTTTXTXXXTTX": "Tài", "TTTTTXTXXXTXT": "Xỉu", "TTTTTXTXXXTXX": "Xỉu",
-    "TTTTTXTXXXXTT": "Tài", "TTTTTXTXXXXTX": "Tài", "TTTTTXTXXXXXT": "Xỉu", "TTTTTXTXXXXXX": "Xỉu",
-    "TTTTTXXTTTTTT": "Tài", "TTTTTXXTTTTTX": "Tài", "TTTTTXXTTTTXT": "Xỉu", "TTTTTXXTTTTXX": "Xỉu",
-    "TTTTTXXTTTXTT": "Tài", "TTTTTXXTTTXTX": "Tài", "TTTTTXXTTTXXT": "Xỉu", "TTTTTXXTTTXXX": "Xỉu",
-    "TTTTTXXTTXTTT": "Tài", "TTTTTXXTTXTTX": "Xỉu", "TTTTTXXTTXTXT": "Xỉu", "TTTTTXXTTXTXX": "Xỉu",
-    "TTTTTXXTTXXTT": "Tài", "TTTTTXXTTXXTX": "Tài", "TTTTTXXTTXXXT": "Xỉu", "TTTTTXXTTXXXX": "Xỉu",
-    "TTTTTXXTXTTTT": "Tài", "TTTTTXXTXTTTX": "Tài", "TTTTTXXTXTTXT": "Xỉu", "TTTTTXXTXTTXX": "Xỉu",
-    "TTTTTXXTXTXTT": "Tài", "TTTTTXXTXTXTX": "Tài", "TTTTTXXTXTXXT": "Tài", "TTTTTXXTXTXXX": "Xỉu",
-    "TTTTTXXTXXTTT": "Tài", "TTTTTXXTXXTTX": "Xỉu", "TTTTTXXTXXTXT": "Xỉu", "TTTTTXXTXXTXX": "Xỉu",
-    "TTTTTXXTXXXTT": "Tài", "TTTTTXXTXXXTX": "Tài", "TTTTTXXTXXXXT": "Xỉu", "TTTTTXXTXXXXX": "Xỉu",
-    "TTTTTXXXTTTTT": "Tài", "TTTTTXXXTTTTX": "Tài", "TTTTTXXXTTTXT": "Xỉu", "TTTTTXXXTTTXX": "Xỉu",
-    "TTTTTXXXTTXTT": "Tài", "TTTTTXXXTTXTX": "Tài", "TTTTTXXXTTXXT": "Xỉu", "TTTTTXXXTTXXX": "Xỉu",
-    "TTTTTXXXTXTTT": "Xỉu", "TTTTTXXXTXTTX": "Tài", "TTTTTXXXTXTXT": "Xỉu", "TTTTTXXXTXTXX": "Xỉu",
-    "TTTTTXXXTXXTT": "Tài", "TTTTTXXXTXXTX": "Tài", "TTTTTXXXTXXXT": "Xỉu", "TTTTTXXXTXXXX": "Xỉu",
-    "TTTTTXXXXTTTT": "Tài", "TTTTTXXXXTTTX": "Tài", "TTTTTXXXXTTXT": "Xỉu", "TTTTTXXXXTTXX": "Xỉu",
-    "TTTTTXXXXTXTT": "Tài", "TTTTTXXXXTXTX": "Tài", "TTTTTXXXXTXXT": "Xỉu", "TTTTTXXXXTXXX": "Tài",
-    "TTTTTXXXXXTTT": "Xỉu", "TTTTTXXXXXTTX": "Tài", "TTTTTXXXXXTXT": "Xỉu", "TTTTTXXXXXTXX": "Xỉu",
-    "TTTTTXXXXXXTT": "Tài", "TTTTTXXXXXXTX": "Tài", "TTTTTXXXXXXXT": "Xỉu", "TTTTTXXXXXXXX": "Xỉu",
-    "TTTTXTTTTTTTT": "Tài", "TTTTXTTTTTTTX": "Tài", "TTTTXTTTTTTXT": "Xỉu", "TTTTXTTTTTTXX": "Xỉu",
-    "TTTTXTTTTTXTT": "Tài", "TTTTXTTTTTXTX": "Tài", "TTTTXTTTTTXXT": "Tài", "TTTTXTTTTTXXX": "Xỉu",
-    "TTTTXTTTTXTTT": "Tài", "TTTTXTTTTXTTX": "Tài", "TTTTXTTTTXTXT": "Xỉu", "TTTTXTTTTXTXX": "Xỉu",
-    "TTTTXTTTTXXTT": "Tài", "TTTTXTTTTXXTX": "Tài", "TTTTXTTTTXXXT": "Xỉu", "TTTTXTTTTXXXX": "Tài",
-    "TTTTXTTTXTTTT": "Tài", "TTTTXTTTXTTTX": "Tài", "TTTTXTTTXTTXT": "Xỉu", "TTTTXTTTXTTXX": "Xỉu",
-    "TTTTXTTTXTXTT": "Tài", "TTTTXTTTXTXTX": "Tài", "TTTTXTTTXTXXT": "Tài", "TTTTXTTTXTXXX": "Tài",
-    "TTTTXTTTXXTTT": "Tài", "TTTTXTTTXXTTX": "Tài", "TTTTXTTTXXTXT": "Xỉu", "TTTTXTTTXXTXX": "Xỉu",
-    "TTTTXTTTXXXTT": "Tài", "TTTTXTTTXXXTX": "Tài", "TTTTXTTTXXXXT": "Xỉu", "TTTTXTTTXXXXX": "Xỉu",
-    "TTTTXTTXTTTTT": "Tài", "TTTTXTTXTTTTX": "Tài", "TTTTXTTXTTTXT": "Xỉu", "TTTTXTTXTTTXX": "Xỉu",
-    "TTTTXTTXTTXTT": "Tài", "TTTTXTTXTTXTX": "Tài", "TTTTXTTXTTXXT": "Xỉu", "TTTTXTTXTTXXX": "Tài",
-    "TTTTXTTXTXTTT": "Tài", "TTTTXTTXTXTTX": "Tài", "TTTTXTTXTXTXT": "Xỉu", "TTTTXTTXTXTXX": "Xỉu",
-    "TTTTXTTXTXXTT": "Tài", "TTTTXTTXTXXTX": "Tài", "TTTTXTTXTXXXT": "Xỉu", "TTTTXTTXTXXXX": "Xỉu",
-    "TTTTXTTXXTTTT": "Tài", "TTTTXTTXXTTTX": "Tài", "TTTTXTTXXTTXT": "Xỉu", "TTTTXTTXXTTXX": "Xỉu",
-    "TTTTXTTXXTXTT": "Tài", "TTTTXTTXXTXTX": "Tài", "TTTTXTTXXTXXT": "Tài", "TTTTXTTXXTXXX": "Tài",
-    "TTTTXTTXXXTTT": "Tài", "TTTTXTTXXXTTX": "Tài", "TTTTXTTXXXTXT": "Xỉu", "TTTTXTTXXXTXX": "Xỉu",
-    "TTTTXTTXXXXTT": "Tài", "TTTTXTTXXXXTX": "Tài", "TTTTXTTXXXXXT": "Xỉu", "TTTTXTTXXXXXX": "Xỉu",
-    "TTTTXTXTTTTTT": "Tài", "TTTTXTXTTTTTX": "Tài", "TTTTXTXTTTTXT": "Xỉu", "TTTTXTXTTTTXX": "Xỉu",
-    "TTTTXTXTTTXTT": "Tài", "TTTTXTXTTTXTX": "Tài", "TTTTXTXTTTXXT": "Tài", "TTTTXTXTTTXXX": "Xỉu",
-    "TTTTXTXTTXTTT": "Tài", "TTTTXTXTTXTTX": "Xỉu", "TTTTXTXTTXTXT": "Xỉu", "TTTTXTXTTXTXX": "Xỉu",
-    "TTTTXTXTTXXTT": "Tài", "TTTTXTXTTXXTX": "Tài", "TTTTXTXTTXXXT": "Xỉu", "TTTTXTXTTXXXX": "Xỉu",
-    "TTTTXTXTXTTTT": "Tài", "TTTTXTXTXTTTX": "Tài", "TTTTXTXTXTTXT": "Xỉu", "TTTTXTXTXTTXX": "Xỉu",
-    "TTTTXTXTXTXTT": "Tài", "TTTTXTXTXTXTX": "Tài", "TTTTXTXTXTXXT": "Xỉu", "TTTTXTXTXTXXX": "Xỉu",
-    "TTTTXTXTXXTTT": "Xỉu", "TTTTXTXTXXTTX": "Xỉu", "TTTTXTXTXXTXT": "Xỉu", "TTTTXTXTXXTXX": "Xỉu",
-    "TTTTXTXTXXXTT": "Tài", "TTTTXTXTXXXTX": "Tài", "TTTTXTXTXXXXT": "Xỉu", "TTTTXTXTXXXXX": "Xỉu",
-    "TTTTXTXXTTTTT": "Tài", "TTTTXTXXTTTTX": "Tài", "TTTTXTXXTTTXT": "Xỉu", "TTTTXTXXTTTXX": "Xỉu",
-    "TTTTXTXXTTXTT": "Tài", "TTTTXTXXTTXTX": "Tài", "TTTTXTXXTTXXT": "Xỉu", "TTTTXTXXTTXXX": "Xỉu",
-    "TTTTXTXXTXTTT": "Tài", "TTTTXTXXTXTTX": "Xỉu", "TTTTXTXXTXTXT": "Xỉu", "TTTTXTXXTXTXX": "Xỉu",
-    "TTTTXTXXTXXTT": "Tài", "TTTTXTXXTXXTX": "Tài", "TTTTXTXXTXXXT": "Xỉu", "TTTTXTXXTXXXX": "Xỉu",
-    "TTTTXTXXXTTTT": "Xỉu", "TTTTXTXXXTTTX": "Tài", "TTTTXTXXXTTXT": "Xỉu", "TTTTXTXXXTTXX": "Xỉu",
-    "TTTTXTXXXTXTT": "Tài", "TTTTXTXXXTXTX": "Tài", "TTTTXTXXXTXXT": "Xỉu", "TTTTXTXXXTXXX": "Xỉu",
-    "TTTTXTXXXXTTT": "Tài", "TTTTXTXXXXTTX": "Tài", "TTTTXTXXXXTXT": "Xỉu", "TTTTXTXXXXTXX": "Xỉu",
-    "TTTTXTXXXXXTT": "Tài", "TTTTXTXXXXXTX": "Tài", "TTTTXTXXXXXXT": "Xỉu", "TTTTXTXXXXXXX": "Xỉu",
-    "TTTTXXTTTTTTT": "Tài", "TTTTXXTTTTTTX": "Tài", "TTTTXXTTTTTXT": "Xỉu", "TTTTXXTTTTTXX": "Xỉu",
-    "TTTTXXTTTTXTT": "Tài", "TTTTXXTTTTXTX": "Tài", "TTTTXXTTTTXXT": "Xỉu", "TTTTXXTTTTXXX": "Tài",
-    "TTTTXXTTTXTTT": "Tài", "TTTTXXTTTXTTX": "Xỉu", "TTTTXXTTTXTXT": "Xỉu", "TTTTXXTTTXTXX": "Xỉu",
-    "TTTTXXTTTXXTT": "Tài", "TTTTXXTTTXXTX": "Tài", "TTTTXXTTTXXXT": "Xỉu", "TTTTXXTTTXXXX": "Tài",
-    "TTTTXXTTXTTTT": "Tài", "TTTTXXTTXTTTX": "Tài", "TTTTXXTTXTTXT": "Xỉu", "TTTTXXTTXTTXX": "Xỉu",
-    "TTTTXXTTXTXTT": "Tài", "TTTTXXTTXTXTX": "Tài", "TTTTXXTTXTXXT": "Tài", "TTTTXXTTXTXXX": "Xỉu",
-    "TTTTXXTTXXTTT": "Xỉu", "TTTTXXTTXXTTX": "Xỉu", "TTTTXXTTXXTXT": "Xỉu", "TTTTXXTTXXTXX": "Xỉu",
-    "TTTTXXTTXXXTT": "Tài", "TTTTXXTTXXXTX": "Tài", "TTTTXXTTXXXXT": "Xỉu", "TTTTXXTTXXXXX": "Xỉu",
-    "TTTTXXTXTTTTT": "Tài", "TTTTXXTXTTTTX": "Tài", "TTTTXXTXTTTXT": "Xỉu", "TTTTXXTXTTTXX": "Xỉu",
-    "TTTTXXTXTTXTT": "Tài", "TTTTXXTXTTXTX": "Tài", "TTTTXXTXTTXXT": "Xỉu", "TTTTXXTXTTXXX": "Xỉu",
-    "TTTTXXTXTXTTT": "Tài", "TTTTXXTXTXTTX": "Xỉu", "TTTTXXTXTXTXT": "Xỉu", "TTTTXXTXTXTXX": "Xỉu",
-    "TTTTXXTXTXXTT": "Tài", "TTTTXXTXTXXTX": "Tài", "TTTTXXTXTXXXT": "Xỉu", "TTTTXXTXTXXXX": "Xỉu",
-    "TTTTXXTXXTTTT": "Xỉu", "TTTTXXTXXTTTX": "Tài", "TTTTXXTXXTTXT": "Xỉu", "TTTTXXTXXTTXX": "Xỉu",
-    "TTTTXXTXXTXTT": "Tài", "TTTTXXTXXTXTX": "Tài", "TTTTXXTXXTXXT": "Tài", "TTTTXXTXXTXXX": "Tài",
-    "TTTTXXTXXXTTT": "Xỉu", "TTTTXXTXXXTTX": "Xỉu", "TTTTXXTXXXTXT": "Xỉu", "TTTTXXTXXXTXX": "Xỉu",
-    "TTTTXXTXXXXTT": "Tài", "TTTTXXTXXXXTX": "Tài", "TTTTXXTXXXXXT": "Xỉu", "TTTTXXTXXXXXX": "Xỉu",
-    "TTTTXXXTTTTTT": "Tài", "TTTTXXXTTTTTX": "Tài", "TTTTXXXTTTTXT": "Xỉu", "TTTTXXXTTTTXX": "Xỉu",
-    "TTTTXXXTTTXTT": "Tài", "TTTTXXXTTTXTX": "Tài", "TTTTXXXTTTXXT": "Xỉu", "TTTTXXXTTTXXX": "Xỉu",
-    "TTTTXXXTTXTTT": "Tài", "TTTTXXXTTXTTX": "Xỉu", "TTTTXXXTTXTXT": "Xỉu", "TTTTXXXTTXTXX": "Xỉu",
-    "TTTTXXXTTXXTT": "Tài", "TTTTXXXTTXXTX": "Tài", "TTTTXXXTTXXXT": "Xỉu", "TTTTXXXTTXXXX": "Tài",
-    "TTTTXXXTXTTTT": "Tài", "TTTTXXXTXTTTX": "Tài", "TTTTXXXTXTTXT": "Xỉu", "TTTTXXXTXTTXX": "Xỉu",
-    "TTTTXXXTXTXTT": "Tài", "TTTTXXXTXTXTX": "Tài", "TTTTXXXTXTXXT": "Xỉu", "TTTTXXXTXTXXX": "Tài",
-    "TTTTXXXTXXTTT": "Xỉu", "TTTTXXXTXXTTX": "Tài", "TTTTXXXTXXTXT": "Xỉu", "TTTTXXXTXXTXX": "Xỉu",
-    "TTTTXXXTXXXTT": "Tài", "TTTTXXXTXXXTX": "Tài", "TTTTXXXTXXXXT": "Xỉu", "TTTTXXXTXXXXX": "Xỉu",
-    "TTTTXXXXTTTTT": "Tài", "TTTTXXXXTTTTX": "Tài", "TTTTXXXXTTTXT": "Xỉu", "TTTTXXXXTTTXX": "Xỉu",
-    "TTTTXXXXTTXTT": "Tài", "TTTTXXXXTTXTX": "Tài", "TTTTXXXXTTXXT": "Xỉu", "TTTTXXXXTTXXX": "Tài",
-    "TTTTXXXXTXTTT": "Tài", "TTTTXXXXTXTTX": "Xỉu", "TTTTXXXXTXTXT": "Xỉu", "TTTTXXXXTXTXX": "Xỉu",
-    "TTTTXXXXTXXTT": "Tài", "TTTTXXXXTXXTX": "Tài", "TTTTXXXXTXXXT": "Xỉu", "TTTTXXXXTXXXX": "Tài",
-    "TTTTXXXXXTTTT": "Tài", "TTTTXXXXXTTTX": "Tài", "TTTTXXXXXTTXT": "Xỉu", "TTTTXXXXXTTXX": "Xỉu",
-    "TTTTXXXXXTXTT": "Tài", "TTTTXXXXXTXTX": "Tài", "TTTTXXXXXTXXT": "Tài", "TTTTXXXXXTXXX": "Xỉu",
-    "TTTTXXXXXXTTT": "Tài", "TTTTXXXXXXTTX": "Tài", "TTTTXXXXXXTXT": "Xỉu", "TTTTXXXXXXTXX": "Xỉu",
-    "TTTTXXXXXXXTT": "Tài", "TTTTXXXXXXXTX": "Tài", "TTTTXXXXXXXXT": "Xỉu", "TTTTXXXXXXXXX": "Xỉu",
-    "TTTXTTTTTTTTT": "Tài", "TTTXTTTTTTTTX": "Tài", "TTTXTTTTTTTXT": "Xỉu", "TTTXTTTTTTTXX": "Xỉu",
-    "TTTXTTTTTTXTT": "Tài", "TTTXTTTTTTXTX": "Tài", "TTTXTTTTTTXXT": "Tài", "TTTXTTTTTTXXX": "Tài",
-    "TTTXTTTTTXTTT": "Tài", "TTTXTTTTTXTTX": "Tài", "TTTXTTTTTXTXT": "Xỉu", "TTTXTTTTTXTXX": "Xỉu",
-    "TTTXTTTTTXXTT": "Tài", "TTTXTTTTTXXTX": "Tài", "TTTXTTTTTXXXT": "Xỉu", "TTTXTTTTTXXXX": "Tài",
-    "TTTXTTTTXTTTT": "Tài", "TTTXTTTTXTTTX": "Tài", "TTTXTTTTXTTXT": "Xỉu", "TTTXTTTTXTTXX": "Xỉu",
-    "TTTXTTTTXTXTT": "Tài", "TTTXTTTTXTXTX": "Tài", "TTTXTTTTXTXXT": "Tài", "TTTXTTTTXTXXX": "Tài",
-    "TTTXTTTTXXTTT": "Tài", "TTTXTTTTXXTTX": "Tài", "TTTXTTTTXXTXT": "Xỉu", "TTTXTTTTXXTXX": "Xỉu",
-    "TTTXTTTTXXXTT": "Tài", "TTTXTTTTXXXTX": "Tài", "TTTXTTTTXXXXT": "Xỉu", "TTTXTTTTXXXXX": "Xỉu",
-    "TTTXTTTXTTTTT": "Tài", "TTTXTTTXTTTTX": "Tài", "TTTXTTTXTTTXT": "Xỉu", "TTTXTTTXTTTXX": "Xỉu",
-    "TTTXTTTXTTXTT": "Tài", "TTTXTTTXTTXTX": "Tài", "TTTXTTTXTTXXT": "Xỉu", "TTTXTTTXTTXXX": "Xỉu",
-    "TTTXTTTXTXTTT": "Tài", "TTTXTTTXTXTTX": "Xỉu", "TTTXTTTXTXTXT": "Xỉu", "TTTXTTTXTXTXX": "Xỉu",
-    "TTTXTTTXTXXTT": "Tài", "TTTXTTTXTXXTX": "Tài", "TTTXTTTXTXXXT": "Xỉu", "TTTXTTTXTXXXX": "Tài",
-    "TTTXTTTXXTTTT": "Tài", "TTTXTTTXXTTTX": "Tài", "TTTXTTTXXTTXT": "Xỉu", "TTTXTTTXXTTXX": "Xỉu",
-    "TTTXTTTXXTXTT": "Tài", "TTTXTTTXXTXTX": "Tài", "TTTXTTTXXTXXT": "Tài", "TTTXTTTXXTXXX": "Xỉu",
-    "TTTXTTTXXXTTT": "Tài", "TTTXTTTXXXTTX": "Xỉu", "TTTXTTTXXXTXT": "Xỉu", "TTTXTTTXXXTXX": "Xỉu",
-    "TTTXTTTXXXXTT": "Tài", "TTTXTTTXXXXTX": "Tài", "TTTXTTTXXXXXT": "Xỉu", "TTTXTTTXXXXXX": "Xỉu",
-    "TTTXTTXTTTTTT": "Tài", "TTTXTTXTTTTTX": "Tài", "TTTXTTXTTTTXT": "Xỉu", "TTTXTTXTTTTXX": "Xỉu",
-    "TTTXTTXTTTXTT": "Tài", "TTTXTTXTTTXTX": "Tài", "TTTXTTXTTTXXT": "Xỉu", "TTTXTTXTTTXXX": "Tài",
-    "TTTXTTXTTXTTT": "Tài", "TTTXTTXTTXTTX": "Xỉu", "TTTXTTXTTXTXT": "Xỉu", "TTTXTTXTTXTXX": "Xỉu",
-    "TTTXTTXTTXXTT": "Tài", "TTTXTTXTTXXTX": "Tài", "TTTXTTXTTXXXT": "Xỉu", "TTTXTTXTTXXXX": "Xỉu",
-    "TTTXTTXTXTTTT": "Tài", "TTTXTTXTXTTTX": "Tài", "TTTXTTXTXTTXT": "Xỉu", "TTTXTTXTXTTXX": "Xỉu",
-    "TTTXTTXTXTXTT": "Tài", "TTTXTTXTXTXTX": "Tài", "TTTXTTXTXTXXT": "Tài", "TTTXTTXTXTXXX": "Xỉu",
-    "TTTXTTXTXXTTT": "Tài", "TTTXTTXTXXTTX": "Xỉu", "TTTXTTXTXXTXT": "Xỉu", "TTTXTTXTXXTXX": "Xỉu",
-    "TTTXTTXTXXXTT": "Tài", "TTTXTTXTXXXTX": "Tài", "TTTXTTXTXXXXT": "Xỉu", "TTTXTTXTXXXXX": "Xỉu",
-    "TTTXTTXXTTTTT": "Tài", "TTTXTTXXTTTTX": "Tài", "TTTXTTXXTTTXT": "Xỉu", "TTTXTTXXTTTXX": "Xỉu",
-    "TTTXTTXXTTXTT": "Tài", "TTTXTTXXTTXTX": "Tài", "TTTXTTXXTTXXT": "Xỉu", "TTTXTTXXTTXXX": "Xỉu",
-    "TTTXTTXXTXTTT": "Tài", "TTTXTTXXTXTTX": "Tài", "TTTXTTXXTXTXT": "Xỉu", "TTTXTTXXTXTXX": "Xỉu",
-    "TTTXTTXXTXXTT": "Tài", "TTTXTTXXTXXTX": "Tài", "TTTXTTXXTXXXT": "Xỉu", "TTTXTTXXTXXXX": "Xỉu",
-    "TTTXTTXXXTTTT": "Xỉu", "TTTXTTXXXTTTX": "Tài", "TTTXTTXXXTTXT": "Xỉu", "TTTXTTXXXTTXX": "Xỉu",
-    "TTTXTTXXXTXTT": "Tài", "TTTXTTXXXTXTX": "Tài", "TTTXTTXXXTXXT": "Xỉu", "TTTXTTXXXTXXX": "Xỉu",
-    "TTTXTTXXXXTTT": "Xỉu", "TTTXTTXXXXTTX": "Tài", "TTTXTTXXXXTXT": "Xỉu", "TTTXTTXXXXTXX": "Xỉu",
-    "TTTXTTXXXXXTT": "Tài", "TTTXTTXXXXXTX": "Tài", "TTTXTTXXXXXXT": "Xỉu", "TTTXTTXXXXXXX": "Xỉu",
-    "TTTXTXTTTTTTT": "Tài", "TTTXTXTTTTTTX": "Tài", "TTTXTXTTTTTXT": "Xỉu", "TTTXTXTTTTTXX": "Xỉu",
-    "TTTXTXTTTTXTT": "Tài", "TTTXTXTTTTXTX": "Tài", "TTTXTXTTTTXXT": "Tài", "TTTXTXTTTTXXX": "Xỉu",
-    "TTTXTXTTTXTTT": "Tài", "TTTXTXTTTXTTX": "Tài", "TTTXTXTTTXTXT": "Xỉu", "TTTXTXTTTXTXX": "Xỉu",
-    "TTTXTXTTTXXTT": "Tài", "TTTXTXTTTXXTX": "Tài", "TTTXTXTTTXXXT": "Xỉu", "TTTXTXTTTXXXX": "Xỉu",
-    "TTTXTXTTXTTTT": "Tài", "TTTXTXTTXTTTX": "Tài", "TTTXTXTTXTTXT": "Xỉu", "TTTXTXTTXTTXX": "Xỉu",
-    "TTTXTXTTXTXTT": "Tài", "TTTXTXTTXTXTX": "Tài", "TTTXTXTTXTXXT": "Tài", "TTTXTXTTXTXXX": "Tài",
-    "TTTXTXTTXXTTT": "Xỉu", "TTTXTXTTXXTTX": "Tài", "TTTXTXTTXXTXT": "Xỉu", "TTTXTXTTXXTXX": "Xỉu",
-    "TTTXTXTTXXXTT": "Tài", "TTTXTXTTXXXTX": "Tài", "TTTXTXTTXXXXT": "Xỉu", "TTTXTXTTXXXXX": "Xỉu",
-    "TTTXTXTXTTTTT": "Tài", "TTTXTXTXTTTTX": "Tài", "TTTXTXTXTTTXT": "Xỉu", "TTTXTXTXTTTXX": "Xỉu",
-    "TTTXTXTXTTXTT": "Tài", "TTTXTXTXTTXTX": "Tài", "TTTXTXTXTTXXT": "Xỉu", "TTTXTXTXTTXXX": "Xỉu",
-    "TTTXTXTXTXTTT": "Xỉu", "TTTXTXTXTXTTX": "Xỉu", "TTTXTXTXTXTXT": "Xỉu", "TTTXTXTXTXTXX": "Xỉu",
-    "TTTXTXTXTXXTT": "Tài", "TTTXTXTXTXXTX": "Tài", "TTTXTXTXTXXXT": "Xỉu", "TTTXTXTXTXXXX": "Xỉu",
-    "TTTXTXTXXTTTT": "Xỉu", "TTTXTXTXXTTTX": "Tài", "TTTXTXTXXTTXT": "Xỉu", "TTTXTXTXXTTXX": "Xỉu",
-    "TTTXTXTXXTXTT": "Tài", "TTTXTXTXXTXTX": "Tài", "TTTXTXTXXTXXT": "Xỉu", "TTTXTXTXXTXXX": "Tài",
-    "TTTXTXTXXXTTT": "Tài", "TTTXTXTXXXTTX": "Xỉu", "TTTXTXTXXXTXT": "Xỉu", "TTTXTXTXXXTXX": "Xỉu",
-    "TTTXTXTXXXXTT": "Tài", "TTTXTXTXXXXTX": "Tài", "TTTXTXTXXXXXT": "Xỉu", "TTTXTXTXXXXXX": "Xỉu",
-    "TTTXTXXTTTTTT": "Tài", "TTTXTXXTTTTTX": "Tài", "TTTXTXXTTTTXT": "Xỉu", "TTTXTXXTTTTXX": "Xỉu",
-    "TTTXTXXTTTXTT": "Tài", "TTTXTXXTTTXTX": "Tài", "TTTXTXXTTTXXT": "Xỉu", "TTTXTXXTTTXXX": "Tài",
-    "TTTXTXXTTXTTT": "Tài", "TTTXTXXTTXTTX": "Xỉu", "TTTXTXXTTXTXT": "Xỉu", "TTTXTXXTTXTXX": "Xỉu",
-    "TTTXTXXTTXXTT": "Tài", "TTTXTXXTTXXTX": "Tài", "TTTXTXXTTXXXT": "Xỉu", "TTTXTXXTTXXXX": "Tài",
-    "TTTXTXXTXTTTT": "Xỉu", "TTTXTXXTXTTTX": "Tài", "TTTXTXXTXTTXT": "Xỉu", "TTTXTXXTXTTXX": "Xỉu",
-    "TTTXTXXTXTXTT": "Tài", "TTTXTXXTXTXTX": "Tài", "TTTXTXXTXTXXT": "Xỉu", "TTTXTXXTXTXXX": "Xỉu",
-    "TTTXTXXTXXTTT": "Xỉu", "TTTXTXXTXXTTX": "Xỉu", "TTTXTXXTXXTXT": "Xỉu", "TTTXTXXTXXTXX": "Xỉu",
-    "TTTXTXXTXXXTT": "Tài", "TTTXTXXTXXXTX": "Tài", "TTTXTXXTXXXXT": "Xỉu", "TTTXTXXTXXXXX": "Xỉu",
-    "TTTXTXXXTTTTT": "Tài", "TTTXTXXXTTTTX": "Tài", "TTTXTXXXTTTXT": "Xỉu", "TTTXTXXXTTTXX": "Xỉu",
-    "TTTXTXXXTTXTT": "Tài", "TTTXTXXXTTXTX": "Tài", "TTTXTXXXTTXXT": "Xỉu", "TTTXTXXXTTXXX": "Xỉu",
-    "TTTXTXXXTXTTT": "Tài", "TTTXTXXXTXTTX": "Tài", "TTTXTXXXTXTXT": "Xỉu", "TTTXTXXXTXTXX": "Xỉu",
-    "TTTXTXXXTXXTT": "Tài", "TTTXTXXXTXXTX": "Tài", "TTTXTXXXTXXXT": "Xỉu", "TTTXTXXXTXXXX": "Xỉu",
-    "TTTXTXXXXTTTT": "Tài", "TTTXTXXXXTTTX": "Tài", "TTTXTXXXXTTXT": "Xỉu", "TTTXTXXXXTTXX": "Xỉu",
-    "TTTXTXXXXTXTT": "Tài", "TTTXTXXXXTXTX": "Tài", "TTTXTXXXXTXXT": "Tài", "TTTXTXXXXTXXX": "Tài",
-    "TTTXTXXXXXTTT": "Xỉu", "TTTXTXXXXXTTX": "Xỉu", "TTTXTXXXXXTXT": "Xỉu", "TTTXTXXXXXTXX": "Xỉu",
-    "TTTXTXXXXXXTT": "Tài", "TTTXTXXXXXXTX": "Tài", "TTTXTXXXXXXXT": "Xỉu", "TTTXTXXXXXXXX": "Xỉu",
-}
-
-TABLE_13 = dict(TABLE_13_RAW)
-for pat, res in list(TABLE_13_RAW.items()):
-    if pat.startswith('X'):
-        continue
-    mirrored = pat.replace('T', 'Z').replace('X', 'T').replace('Z', 'X')
-    if mirrored not in TABLE_13:
-        TABLE_13[mirrored] = "Tài" if res == "Xỉu" else "Xỉu"
-
-def _lookup_table13(seq_str):
-    if len(seq_str) < 13:
-        return None, 0, 0
-    res = TABLE_13.get(seq_str[-13:])
-    if res is None:
-        return None, 0, 0
-    return res, 80, 1.6
 
 # ========== HELPER ==========
 def _runs(seq):
@@ -261,14 +50,10 @@ def _runs(seq):
     out.append((cur, n))
     return out
 
-def _to_seq_str(seq):
-    return ''.join('T' if x == 'Tài' else 'X' for x in seq)
-
 def _generate_dice(prediction, confidence, seed_str=None):
     if seed_str is None: seed_str = str(time.time())
     h = int(hashlib.md5(seed_str.encode()).hexdigest(), 16)
     rng = random.Random(h)
-
     if prediction == 'Tài':
         if confidence >= 75: target = rng.randint(13, 17)
         elif confidence >= 65: target = rng.randint(12, 15)
@@ -277,18 +62,17 @@ def _generate_dice(prediction, confidence, seed_str=None):
         if confidence >= 75: target = rng.randint(4, 8)
         elif confidence >= 65: target = rng.randint(6, 9)
         else: target = rng.randint(7, 10)
-
     for _ in range(60):
-        d1 = rng.randint(1, 6)
-        d2 = rng.randint(1, 6)
+        d1 = rng.randint(1, 6); d2 = rng.randint(1, 6)
         d3 = target - d1 - d2
-        if 1 <= d3 <= 6:
-            return [d1, d2, d3]
+        if 1 <= d3 <= 6: return [d1, d2, d3]
     return [5, 6, 4] if prediction == 'Tài' else [2, 3, 4]
 
 
-# ========== PREDICTOR (V17) ==========
+# ========== PREDICTOR V18 ==========
 class MultiStrategyPredictor:
+
+    # --- 1. API MAIN: dựa trên tỉ lệ + chẵn lẻ + tổng điểm ---
     @staticmethod
     def _algo_api_main(valid):
         if len(valid) < 15: return (None, 0, 0)
@@ -297,7 +81,6 @@ class MultiStrategyPredictor:
         ratio = tais / len(recent)
         if ratio >= 0.75: return ('Xỉu', 65, 1.2)
         if ratio <= 0.25: return ('Tài', 65, 1.2)
-        
         totals = [v['total'] for v in recent if v.get('total')]
         if len(totals) >= 10:
             evens = sum(1 for t in totals if t % 2 == 0)
@@ -306,41 +89,151 @@ class MultiStrategyPredictor:
             if r_even <= 0.20: return ('Tài', 62, 1.1)
         return (None, 0, 0)
 
+    # --- 2. API INVERT: tự động đảo khi sai 2-3 tay ---
     @staticmethod
     def _algo_api_invert(log):
         if not log: return (None, 0, 0)
-        evaluated = [e for p, e in sorted(log.items(), reverse=True) if e.get('actual') is not None][:3]
+        evaluated = [e for p, e in sorted(log.items(), reverse=True) if e.get('actual') is not None][:5]
         if len(evaluated) < 2: return (None, 0, 0)
-        wrong_count = sum(1 for e in evaluated if not e.get('correct'))
-        if wrong_count >= 2:
+        # Đếm chuỗi sai liên tiếp gần nhất
+        fail_streak = 0
+        for e in evaluated:
+            if not e.get('correct'): fail_streak += 1
+            else: break
+        # Đếm chuỗi đúng liên tiếp
+        win_streak = 0
+        for e in evaluated:
+            if e.get('correct'): win_streak += 1
+            else: break
+        
+        if fail_streak >= 3:
             last_pred = evaluated[0]['prediction']
-            inverted_pred = 'Xỉu' if last_pred == 'Tài' else 'Tài'
-            conf = 68 if wrong_count == 3 else 62
-            return (inverted_pred, conf, 1.5)
+            inv = 'Xỉu' if last_pred == 'Tài' else 'Tài'
+            return (inv, 74, 1.8)   # Sai 3 tay -> đảo mạnh
+        if fail_streak >= 2:
+            last_pred = evaluated[0]['prediction']
+            inv = 'Xỉu' if last_pred == 'Tài' else 'Tài'
+            return (inv, 68, 1.5)   # Sai 2 tay -> đảo vừa
+        # Nếu đang thắng liên tiếp 4+ -> giữ nguyên hướng (theo đà)
+        if win_streak >= 4:
+            last_pred = evaluated[0]['prediction']
+            return (last_pred, 63, 1.3)
         return (None, 0, 0)
 
+    # --- 3. TOÁN CẦU / XU HƯỚNG (nâng cấp) ---
     @staticmethod
     def _algo_math_cau(seq):
-        if len(seq) < 10: return (None, 0, 0)
+        if len(seq) < 8: return (None, 0, 0)
         runs = _runs(seq)
         if not runs: return (None, 0, 0)
         cur_val, cur_len = runs[-1]
         opp = 'Xỉu' if cur_val == 'Tài' else 'Tài'
         last5 = [l for _, l in runs[-5:]]
-        
+
+        # Cầu 1-1 (bệt xen kẽ) 4 nhịp liên tiếp
         if len(last5) >= 4 and all(l == 1 for l in last5[-4:]):
-            return (opp, 66, 1.4)
+            return (opp, 68, 1.5)
+
+        # Cầu 2-2 lặp
         if len(last5) >= 3 and all(l == 2 for l in last5[-3:]):
-            return (cur_val if cur_len == 1 else opp, 64, 1.3)
+            return (cur_val if cur_len == 1 else opp, 66, 1.4)
+
+        # Cầu 3-3 lặp (mới)
+        if len(last5) >= 2 and all(l == 3 for l in last5[-2:]):
+            return (cur_val if cur_len < 3 else opp, 64, 1.3)
+
+        # Bệt dài >= 6 -> bẻ
         if cur_len >= 6:
-            return (opp, min(62 + (cur_len - 6) * 3, 82), 1.45)
-        if 3 <= cur_len <= 4:
-            return (cur_val, min(58 + cur_len * 2, 70), 1.2)
+            return (opp, min(62 + (cur_len - 6) * 3, 85), 1.6)
+
+        # Bệt vừa 3-5 -> theo đà
+        if 3 <= cur_len <= 5:
+            return (cur_val, min(58 + cur_len * 2, 72), 1.25)
+
+        # Cầu đảo 2 nhịp cuối
+        if len(last5) >= 2 and last5[-2] == 1 and last5[-1] == 1:
+            return (opp, 60, 1.2)
         return (None, 0, 0)
 
+    # --- 4. TOÁN MARKOV: xác suất chuyển trạng thái ---
     @staticmethod
-    def _algo_math_pattern13(seq):
-        return _lookup_table13(_to_seq_str(seq))
+    def _algo_math_markov(seq):
+        if len(seq) < 12: return (None, 0, 0)
+        # Xây ma trận chuyển T->T, T->X, X->T, X->X
+        trans = defaultdict(lambda: {'Tài': 0, 'Xỉu': 0})
+        for i in range(len(seq) - 1):
+            trans[seq[i]][seq[i+1]] += 1
+        last = seq[-1]
+        counts = trans[last]
+        total = counts['Tài'] + counts['Xỉu']
+        if total < 5: return (None, 0, 0)
+        p_tai = counts['Tài'] / total
+        if p_tai >= 0.65:
+            return ('Tài', int(55 + p_tai * 25), 1.3)
+        if p_tai <= 0.35:
+            return ('Xỉu', int(55 + (1 - p_tai) * 25), 1.3)
+        # Markov bậc 2
+        if len(seq) >= 14:
+            pair = seq[-2] + '|' + seq[-1]
+            trans2 = defaultdict(lambda: {'Tài': 0, 'Xỉu': 0})
+            for i in range(len(seq) - 2):
+                k = seq[i] + '|' + seq[i+1]
+                trans2[k][seq[i+2]] += 1
+            c2 = trans2[pair]
+            t2 = c2['Tài'] + c2['Xỉu']
+            if t2 >= 3:
+                p2 = c2['Tài'] / t2
+                if p2 >= 0.70: return ('Tài', 68, 1.4)
+                if p2 <= 0.30: return ('Xỉu', 68, 1.4)
+        return (None, 0, 0)
+
+    # --- 5. TOÁN CHUỖI THẮNG/THUA ---
+    @staticmethod
+    def _algo_math_streak(log):
+        if not log: return (None, 0, 0)
+        evaluated = [e for p, e in sorted(log.items(), reverse=True) if e.get('actual') is not None][:10]
+        if len(evaluated) < 4: return (None, 0, 0)
+        results = [e.get('correct') for e in evaluated]
+        # Đang thua liên tiếp -> đảo hướng dự đoán trước
+        fail_streak = 0
+        for r in results:
+            if r is False: fail_streak += 1
+            else: break
+        if fail_streak >= 2:
+            last_pred = evaluated[0]['prediction']
+            inv = 'Xỉu' if last_pred == 'Tài' else 'Tài'
+            return (inv, 66, 1.5)
+        # Đang thắng liên tiếp -> theo đà
+        win_streak = 0
+        for r in results:
+            if r is True: win_streak += 1
+            else: break
+        if win_streak >= 3:
+            last_pred = evaluated[0]['prediction']
+            return (last_pred, 62, 1.2)
+        return (None, 0, 0)
+
+    # --- 6. TOÁN CÂN BẰNG: tổng điểm & chẵn lẻ ---
+    @staticmethod
+    def _algo_math_balance(valid):
+        if len(valid) < 10: return (None, 0, 0)
+        recent = valid[-15:]
+        totals = [v['total'] for v in recent if v.get('total')]
+        if len(totals) < 8: return (None, 0, 0)
+        # Trung bình tổng điểm
+        avg = sum(totals) / len(totals)
+        # Nếu avg lệch khỏi 10.5 nhiều -> có xu hướng đảo
+        deviation = avg - 10.5
+        if deviation >= 1.5:
+            return ('Xỉu', 62, 1.2)
+        if deviation <= -1.5:
+            return ('Tài', 62, 1.2)
+        # Mật độ chẵn lẻ
+        evens = sum(1 for t in totals if t % 2 == 0)
+        r_even = evens / len(totals)
+        if r_even >= 0.80: return ('Tài', 60, 1.1)   # chẵn nhiều -> Tài bù
+        if r_even <= 0.20: return ('Xỉu', 60, 1.1)
+        return (None, 0, 0)
 
     @classmethod
     def predict(cls, valid, log=None):
@@ -364,19 +257,23 @@ class MultiStrategyPredictor:
         s_api = cls._algo_api_main(valid)
         s_invert = cls._algo_api_invert(log)
         s_cau = cls._algo_math_cau(seq)
-        s_pat13 = cls._algo_math_pattern13(seq)
+        s_markov = cls._algo_math_markov(seq)
+        s_streak = cls._algo_math_streak(log)
+        s_balance = cls._algo_math_balance(valid)
 
         raw_signals = [
             ('api_main', s_api, 1.2),
             ('api_invert', s_invert, 1.5),
             ('math_cau', s_cau, 1.4),
-            ('math_pattern', s_pat13, 1.6),
+            ('math_markov', s_markov, 1.3),
+            ('math_streak', s_streak, 1.4),
+            ('math_balance', s_balance, 1.1),
         ]
 
         signals = []
         log_odds = 0.0
         total_w = 0.0
-        
+
         for name, (pred, conf, weight), base_w in raw_signals:
             if not pred or conf <= 0: continue
             weight *= base_w
@@ -385,7 +282,8 @@ class MultiStrategyPredictor:
             if pred == 'Xỉu': lr = 1.0 / lr
             log_odds += weight * (1.0 if pred == 'Tài' else -1.0) * (lr - 1.0)
             total_w += weight
-            signals.append({'name': name, 'prediction': pred, 'confidence': conf, 'weight': round(weight, 2)})
+            signals.append({'name': name, 'prediction': pred, 'confidence': conf,
+                            'weight': round(weight, 2)})
 
         if not signals or total_w == 0:
             return {'prediction': 'Tài', 'confidence': 50, 'method': 'Fallback',
@@ -405,8 +303,25 @@ class MultiStrategyPredictor:
         if agreement == 1.0: bonus += 10
         elif agreement >= 0.75: bonus += 5
 
+        # Kiểm tra fail_streak từ log để kích hoạt recovery
+        fail_streak = 0
+        if log:
+            evaluated = [e for p, e in sorted(log.items(), reverse=True) if e.get('actual') is not None][:5]
+            for e in evaluated:
+                if not e.get('correct'): fail_streak += 1
+                else: break
+
+        # Nếu đang sai 3 tay -> đảo kết quả cuối + tăng conf
+        if fail_streak >= 3:
+            pred = 'Xỉu' if pred == 'Tài' else 'Tài'
+            raw_conf = min(raw_conf + 8, 85)
+            bonus += 3
+        elif fail_streak >= 2:
+            raw_conf = min(raw_conf + 4, 82)
+            bonus += 2
+
         final_conf = max(50, min(raw_conf + bonus, 88))
-        flipped = any(s['name'] == 'api_invert' for s in signals) and votes_tai != votes_xiu
+        flipped = fail_streak >= 2 or any(s['name'] == 'api_invert' for s in signals)
         signals.sort(key=lambda s: s['weight'] * s['confidence'], reverse=True)
         top = [SIGNAL_NAMES.get(s['name'], s['name']) for s in signals[:3]]
 
@@ -418,8 +333,9 @@ class MultiStrategyPredictor:
                                   'prediction': s['prediction'], 'confidence': s['confidence'],
                                   'weight': s['weight'], 'strength': round(s['weight'] * s['confidence'], 1)}
                                  for s in signals],
-            'reason': 'API Chính + API Đảo + Cầu + Mẫu', 'flipped': flipped, 'cau': 'math', 'cau_label': '',
-            'recovery_active': flipped, 'fail_streak': 0,
+            'reason': 'API + Toán Markov + Toán Cầu + Toán Chuỗi + Cân Bằng',
+            'flipped': flipped, 'cau': 'math', 'cau_label': '',
+            'recovery_active': flipped, 'fail_streak': fail_streak,
         }
 
 
@@ -437,7 +353,6 @@ def fetch_sessions():
                 if r.status_code == 200:
                     data = r.json()
                     if 'list' in data and data['list']:
-                        # API mới trả về _id, resultTruyenThong, dices, point
                         rows = [{'phien': int(i['id']),
                                  'result': "Tài" if i['resultTruyenThong'] == "TAI" else "Xỉu",
                                  'dice': f"{i['dices'][0]} + {i['dices'][1]} + {i['dices'][2]}",
@@ -445,7 +360,7 @@ def fetch_sessions():
                         _LAST_FETCH_TIME = now
                         _LAST_FETCH_RESULT = (rows, True)
                         return rows, True
-            except Exception as e:
+            except Exception:
                 time.sleep(1)
         return _LAST_FETCH_RESULT
 
@@ -496,10 +411,12 @@ def _update_prediction_log(valid):
         PREDICTION_LOG[phien] = {
             'prediction': pred['prediction'], 'confidence': pred['confidence'],
             'method': pred['method'], 'actual': actual, 'correct': (pred['prediction'] == actual),
-            'logged_at': datetime.now().isoformat(), 'retroactive': True, 'flipped': pred.get('flipped', False)}
+            'logged_at': datetime.now().isoformat(), 'retroactive': True,
+            'flipped': pred.get('flipped', False)}
         changed = True
     if len(PREDICTION_LOG) > MAX_LOG_SIZE:
-        for k in sorted(PREDICTION_LOG.keys())[:len(PREDICTION_LOG) - MAX_LOG_SIZE]: del PREDICTION_LOG[k]
+        for k in sorted(PREDICTION_LOG.keys())[:len(PREDICTION_LOG) - MAX_LOG_SIZE]:
+            del PREDICTION_LOG[k]
         changed = True
     if changed: _save_log()
 
@@ -508,7 +425,8 @@ def _log_prediction(phien, pred_result):
     PREDICTION_LOG[phien] = {
         'prediction': pred_result['prediction'], 'confidence': pred_result['confidence'],
         'method': pred_result['method'], 'actual': None, 'correct': None,
-        'logged_at': datetime.now().isoformat(), 'retroactive': False, 'flipped': pred_result.get('flipped', False)}
+        'logged_at': datetime.now().isoformat(), 'retroactive': False,
+        'flipped': pred_result.get('flipped', False)}
     _save_log()
 
 def _log_stats(log=None):
@@ -521,11 +439,11 @@ def _log_stats(log=None):
 
 _load_log()
 
-# ========== HTML ==========
+# ========== HTML (giữ nguyên như bản gốc) ==========
 HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="vi"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>LE MINH MD5 V1</title>
+<title>LE MINH MD5 V2</title>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <style>
@@ -577,7 +495,7 @@ tr:hover td{background:#eff6ff}
 .loading{text-align:center;padding:30px;color:var(--primary);font-weight:600}
 @media(max-width:520px){th,td{padding:8px 4px;font-size:11px}.clock{display:none}.badge{min-width:44px;font-size:9px}.sc-v{font-size:17px}.pred-value{font-size:26px}}
 </style></head><body>
-<div class="header"><div class="logo"><span class="logo-text">LE MINH</span><span class="ver">V1</span></div>
+<div class="header"><div class="logo"><span class="logo-text">LE MINH</span><span class="ver">V2</span></div>
 <div class="actions"><div class="clock" id="clock">--:--:--</div>
 <button class="btn" onclick="manualRefresh(this)">↻</button>
 <button class="btn btn-reset" onclick="confirmReset()">Reset</button></div></div>
@@ -679,7 +597,6 @@ def history():
         next_phien = valid[-1]['phien'] + 1
         pred = MultiStrategyPredictor.predict(valid, log=PREDICTION_LOG)
         _log_prediction(next_phien, pred)
-        
         out = [{
             'phien': next_phien, 'is_next': True, 'result': 'Chờ...',
             'dice': '? + ? + ?', 'total': None,
@@ -708,17 +625,13 @@ def lc79hu():
         valid, success = _sync_history()
         if not success: return jsonify({'error': 'Không thể kết nối API'}), 500
         if not valid: return jsonify({'Id': '@cskhleminh', 'Phien': None, 'Du_doan': None, 'Do_tin_cay': None, 'message': 'Đang tải...'})
-        
         last = valid[-1]
         next_phien = last['phien'] + 1
         pred = MultiStrategyPredictor.predict(valid, log=PREDICTION_LOG)
         _log_prediction(next_phien, pred)
-        
         return jsonify({
-            'Id': '@cskhleminh',
-            'Phien': str(next_phien),
-            'Du_doan': pred['prediction'],
-            'Do_tin_cay': f"{pred['confidence']}%",
+            'Id': '@cskhleminh', 'Phien': str(next_phien),
+            'Du_doan': pred['prediction'], 'Do_tin_cay': f"{pred['confidence']}%",
             'Ket_qua_du_doan': pred['prediction']
         })
     except Exception as e:
@@ -735,10 +648,8 @@ def lc79md5():
         next_phien = last['phien'] + 1
         pred = MultiStrategyPredictor.predict(valid, log=PREDICTION_LOG)
         _log_prediction(next_phien, pred)
-
         dice = _generate_dice(pred['prediction'], pred['confidence'], seed_str=f"phien_{next_phien}_{last['phien']}")
         dice_str = f"{dice[0]}-{dice[1]}-{dice[2]}"
-
         return jsonify({
             'Id': '@cskhleminh', 'Phien': str(next_phien), 'Du_doan': pred['prediction'],
             'Xuc_xac': dice_str, 'Do_tin_cay': f"{pred['confidence']}%", 'Ket_qua_du_doan': pred['prediction']
@@ -758,11 +669,12 @@ def predict():
         pred = MultiStrategyPredictor.predict(valid, log=PREDICTION_LOG)
         _log_prediction(next_phien, pred)
         return jsonify({
-            'version': 'V17', 'next_phien': next_phien, 'last_result': last['result'],
+            'version': 'V18', 'next_phien': next_phien, 'last_result': last['result'],
             'prediction': pred['prediction'], 'confidence': pred['confidence'],
             'method': pred['method'], 'top_signals': pred.get('top_signals', []),
             'reason': pred['reason'], 'flipped': pred.get('flipped', False),
-            'recovery_active': pred.get('recovery_active', False), 'ai_stats': _log_stats(),
+            'recovery_active': pred.get('recovery_active', False),
+            'fail_streak': pred.get('fail_streak', 0), 'ai_stats': _log_stats(),
         })
     except Exception as e:
         traceback.print_exc()
