@@ -10,148 +10,85 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)
 
-# ✅ API MỚI - đã thay thế API cũ
+# ✅ API MỚI
 API_URL_MD5 = "https://wtxmd52.macminim6.online/v1/txmd5/lite-sessions?cp=R&cl=R&pf=web&at=bd651d261174ed4a619dfde6c5432fdd"
 
 HISTORY_CACHE = {}
 PREDICTION_CACHE = {}
 MAX_PREDICTION_CACHE = 2000
 RESET_ID = 0
-BOOTSTRAP_SESSIONS = []  # Lưu session mồi khi reset để dự đoán ngay không đợi 3 phiên
+BOOTSTRAP_SESSIONS = []
 
 # =====================================================================
-# PATTERN DATABASE (chuỗi 13 phiên T/X -> kết quả phiên kế tiếp)
+# PATTERN DATABASE (13 phiên T/X → kết quả kế tiếp)
 # =====================================================================
 PATTERN_DB = {
-    "TTTTTTTTTTTTT": "Tài",
-    "TTTTTTTTTTTTX": "Tài",
-    "TTTTTTTTTTTXT": "Xỉu",
-    "TTTTTTTTTTTXX": "Xỉu",
-    "TTTTTTTTTTXTT": "Tài",
-    "TTTTTTTTTTXTX": "Tài",
-    "TTTTTTTTTTXXT": "Xỉu",
-    "TTTTTTTTTTXXX": "Tài",
-    "TTTTTTTTTXTTT": "Xỉu",
-    "TTTTTTTTTXTTX": "Xỉu",
-    "TTTTTTTTTXTXT": "Xỉu",
-    "TTTTTTTTTXTXX": "Xỉu",
-    "TTTTTTTTTXXTT": "Tài",
-    "TTTTTTTTTXXTX": "Tài",
-    "TTTTTTTTTXXXT": "Xỉu",
-    "TTTTTTTTTXXXX": "Tài",
-    "TTTTTTTTXTTTT": "Tài",
-    "TTTTTTTTXTTTX": "Tài",
-    "TTTTTTTTXTTXT": "Xỉu",
-    "TTTTTTTTXTTXX": "Xỉu",
-    "TTTTTTTTXTXTT": "Tài",
-    "TTTTTTTTXTXTX": "Tài",
-    "TTTTTTTTXTXXT": "Tài",
-    "TTTTTTTTXTXXX": "Tài",
-    "TTTTTTTTXXTTT": "Tài",
-    "TTTTTTTTXXTTX": "Tài",
-    "TTTTTTTTXXTXT": "Xỉu",
-    "TTTTTTTTXXTXX": "Xỉu",
-    "TTTTTTTTXXXTT": "Tài",
-    "TTTTTTTTXXXTX": "Tài",
-    "TTTTTTTTXXXXT": "Xỉu",
-    "TTTTTTTTXXXXX": "Xỉu",
-    "TTTTTTTXTTTTT": "Tài",
-    "TTTTTTTXTTTTX": "Tài",
-    "TTTTTTTXTTTXT": "Xỉu",
-    "TTTTTTTXTTTXX": "Xỉu",
-    "TTTTTTTXTTXTT": "Tài",
-    "TTTTTTTXTTXTX": "Tài",
-    "TTTTTTTXTTXXT": "Tài",
-    "TTTTTTTXTTXXX": "Xỉu",
-    "TTTTTTTXTXTTT": "Xỉu",
-    "TTTTTTTXTXTTX": "Xỉu",
-    "TTTTTTTXTXTXT": "Xỉu",
-    "TTTTTTTXTXTXX": "Xỉu",
-    "TTTTTTTXTXXTT": "Tài",
-    "TTTTTTTXTXXTX": "Tài",
-    "TTTTTTTXTXXXT": "Xỉu",
-    "TTTTTTTXTXXXX": "Tài",
-    "TTTTTTTXXTTTT": "Tài",
-    "TTTTTTTXXTTTX": "Tài",
-    "TTTTTTTXXTTXT": "Xỉu",
-    "TTTTTTTXXTTXX": "Xỉu",
-    "TTTTTTTXXTXTT": "Tài",
-    "TTTTTTTXXTXTX": "Tài",
-    "TTTTTTTXXTXXT": "Tài",
-    "TTTTTTTXXTXXX": "Tài",
-    "TTTTTTTXXXTTT": "Tài",
-    "TTTTTTTXXXTTX": "Tài",
-    "TTTTTTTXXXTXT": "Xỉu",
-    "TTTTTTTXXXTXX": "Xỉu",
-    "TTTTTTTXXXXTT": "Tài",
-    "TTTTTTTXXXXTX": "Tài",
-    "TTTTTTTXXXXXT": "Xỉu",
-    "TTTTTTTXXXXXX": "Xỉu",
-    "TTTTTTXTTTTTT": "Tài",
-    "TTTTTTXTTTTTX": "Tài",
-    "TTTTTTXTTTTXT": "Xỉu",
-    "TTTTTTXTTTTXX": "Xỉu",
-    "TTTTTTXTTTXTT": "Tài",
-    "TTTTTTXTTTXTX": "Tài",
-    "TTTTTTXTTTXXT": "Tài",
-    "TTTTTTXTTTXXX": "Xỉu",
-    "TTTTTTXTTXTTT": "Xỉu",
-    "TTTTTTXTTXTTX": "Xỉu",
-    "TTTTTTXTTXTXT": "Xỉu",
-    "TTTTTTXTTXTXX": "Xỉu",
-    "TTTTTTXTTXXTT": "Tài",
-    "TTTTTTXTTXXTX": "Tài",
-    "TTTTTTXTTXXXT": "Xỉu",
-    "TTTTTTXTTXXXX": "Tài",
-    "TTTTTTXTXTTTT": "Tài",
-    "TTTTTTXTXTTTX": "Tài",
-    "TTTTTTXTXTTXT": "Xỉu",
-    "TTTTTTXTXTTXX": "Xỉu",
-    "TTTTTTXTXTXTT": "Tài",
-    "TTTTTTXTXTXTX": "Tài",
-    "TTTTTTXTXTXXT": "Tài",
-    "TTTTTTXTXTXXX": "Tài",
-    "TTTTTTXTXXTTT": "Tài",
-    "TTTTTTXTXXTTX": "Tài",
-    "TTTTTTXTXXTXT": "Xỉu",
-    "TTTTTTXTXXTXX": "Xỉu",
-    "TTTTTTXTXXXTT": "Tài",
-    "TTTTTTXTXXXTX": "Tài",
-    "TTTTTTXTXXXXT": "Xỉu",
-    "TTTTTTXTXXXXX": "Xỉu",
-    "TTTTTTXXTTTTT": "Tài",
-    "TTTTTTXXTTTTX": "Tài",
-    "TTTTTTXXTTTXT": "Xỉu",
-    "TTTTTTXXTTTXX": "Xỉu",
-    "TTTTTTXXTTXTT": "Tài",
-    "TTTTTTXXTTXTX": "Tài",
-    "TTTTTTXXTTXXT": "Tài",
-    "TTTTTTXXTTXXX": "Xỉu",
-    "TTTTTTXXTXTTT": "Xỉu",
-    "TTTTTTXXTXTTX": "Xỉu",
-    "TTTTTTXXTXTXT": "Xỉu",
-    "TTTTTTXXTXTXX": "Xỉu",
-    "TTTTTTXXTXXTT": "Tài",
-    "TTTTTTXXTXXTX": "Tài",
-    "TTTTTTXXTXXXT": "Xỉu",
-    "TTTTTTXXTXXXX": "Tài",
-    "TTTTTTXXXTTTT": "Tài",
-    "TTTTTTXXXTTTX": "Tài",
-    "TTTTTTXXXTTXT": "Xỉu",
-    "TTTTTTXXXTTXX": "Xỉu",
-    "TTTTTTXXXTXTT": "Tài",
-    "TTTTTTXXXTXTX": "Tài",
-    "TTTTTTXXXTXXT": "Tài",
-    "TTTTTTXXXTXXX": "Tài",
-    "TTTTTTXXXXTTT": "Tài",
-    "TTTTTTXXXXTTX": "Tài",
-    "TTTTTTXXXXTXT": "Xỉu",
-    "TTTTTTXXXXTXX": "Xỉu",
-    "TTTTTTXXXXXTT": "Tài",
-    "TTTTTTXXXXXTX": "Tài",
-    "TTTTTTXXXXXXT": "Xỉu",
-    "TTTTTTXXXXXXX": "Xỉu",
+    "TTTTTTTTTTTTT": "Xỉu", "TTTTTTTTTTTTX": "Tài",
+    "TTTTTTTTTTTXT": "Xỉu", "TTTTTTTTTTTXX": "Xỉu",
+    "TTTTTTTTTTXTT": "Tài", "TTXTXTTTTTXTX": "Tài",
+    "TTTTTTTTTTXXT": "Xỉu", "TTTTTTTTTTXXX": "Tài",
+    "TTTTTTTTTXTTT": "Xỉu", "TTTTTTTTTXTTX": "Xỉu",
+    "TTTTTTTTTXTXT": "Xỉu", "TTTTTTTTTXTXX": "Xỉu",
+    "TTTTTTTTTXXTT": "Tài", "TTTTTTTTTXXTX": "Tài",
+    "TTTTTTTTTXXXT": "Xỉu", "TTTTTTTTTXXXX": "Tài",
+    "TTTTTTTTXTTTT": "Tài", "TTTTTTTTXTTTX": "Tài",
+    "TTTTTTTTXTTXT": "Xỉu", "TTTTTTTTXTTXX": "Xỉu",
+    "TTTTTTTTXTXTT": "Tài", "TTTTTTTTXTXTX": "Tài",
+    "TTTTTTTTXTXXT": "Tài", "TTTTTTTTXTXXX": "Tài",
+    "TTTTTTTTXXTTT": "Tài", "TTTTTTTTXXTTX": "Tài",
+    "TTTTTTTTXXTXT": "Xỉu", "TTTTTTTTXXTXX": "Xỉu",
+    "TTTTTTTTXXXTT": "Tài", "TTTTTTTTXXXTX": "Tài",
+    "TTTTTTTTXXXXT": "Xỉu", "TTTTTTTTXXXXX": "Xỉu",
+    "TTTTTTTXTTTTT": "Tài", "TTTTTTTXTTTTX": "Tài",
+    "TTTTTTTXTTTXT": "Xỉu", "TTTTTTTXTTTXX": "Xỉu",
+    "TTTTTTTXTTXTT": "Tài", "TTTTTTTXTTXTX": "Tài",
+    "TTTTTTTXTTXXT": "Tài", "TTTTTTTXTTXXX": "Xỉu",
+    "TTTTTTTXTXTTT": "Xỉu", "TTTTTTTXTXTTX": "Xỉu",
+    "TTTTTTTXTXTXT": "Xỉu", "TTTTTTTXTXTXX": "Xỉu",
+    "TTTTTTTXTXXTT": "Tài", "TTTTTTTXTXXTX": "Tài",
+    "TTTTTTTXTXXXT": "Xỉu", "TTTTTTTXTXXXX": "Tài",
+    "TTTTTTTXXTTTT": "Tài", "TTTTTTTXXTTTX": "Tài",
+    "TTTTTTTXXTTXT": "Xỉu", "TTTTTTTXXTTXX": "Xỉu",
+    "TTTTTTTXXTXTT": "Tài", "TTTTTTTXXTXTX": "Tài",
+    "TTTTTTTXXTXXT": "Tài", "TTTTTTTXXTXXX": "Tài",
+    "TTTTTTTXXXTTT": "Tài", "TTTTTTTXXXTTX": "Tài",
+    "TTTTTTTXXXTXT": "Xỉu", "TTTTTTTXXXTXX": "Xỉu",
+    "TTTTTTTXXXXTT": "Tài", "TTTTTTTXXXXTX": "Tài",
+    "TTTTTTTXXXXXT": "Xỉu", "TTTTTTTXXXXXX": "Xỉu",
+    "TTTTTTXTTTTTT": "Tài", "TTTTTTXTTTTTX": "Tài",
+    "TTTTTTXTTTTXT": "Xỉu", "TTTTTTXTTTTXX": "Xỉu",
+    "TTTTTTXTTTXTT": "Tài", "TTTTTTXTTTXTX": "Tài",
+    "TTTTTTXTTTXXT": "Tài", "TTTTTTXTTTXXX": "Xỉu",
+    "TTTTTTXTTXTTT": "Tài", "TTTTTTXTTXTTX": "Tài",
+    "TTTTTTXTTXTXT": "Xỉu", "TTTTTTXTTXTXX": "Xỉu",
+    "TTTTTTXTTXXTT": "Tài", "TTTTTTXTTXXTX": "Tài",
+    "TTTTTTXTTXXXT": "Xỉu", "TTTTTTXTTXXXX": "Tài",
+    "TTTTTTXTXTTTT": "Tài", "TTTTTTXTXTTTX": "Tài",
+    "TTTTTTXTXTTXT": "Xỉu", "TTTTTTXTXTTXX": "Xỉu",
+    "TTTTTTXTXTXTT": "Tài", "TTTTTTXTXTXTX": "Tài",
+    "TTTTTTXTXTXXT": "Tài", "TTTTTTXTXTXXX": "Tài",
+    "TTTTTTXTXXTTT": "Tài", "TTTTTTXTXXTTX": "Tài",
+    "TTTTTTXTXXTXT": "Xỉu", "TTTTTTXTXXTXX": "Xỉu",
+    "TTTTTTXTXXXTT": "Tài", "TTTTTTXTXXXTX": "Tài",
+    "TTTTTTXTXXXXT": "Xỉu", "TTTTTTXTXXXXX": "Xỉu",
+    "TTTTTTXXTTTTT": "Tài", "TTTTTTXXTTTTX": "Tài",
+    "TTTTTTXXTTTXT": "Xỉu", "TTTTTTXXTTTXX": "Xỉu",
+    "TTTTTTXXTTXTT": "Tài", "TTTTTTXXTTXTX": "Tài",
+    "TTTTTTXXTTXXT": "Tài", "TTTTTTXXTTXXX": "Xỉu",
+    "TTTTTTXXTXTTT": "Xỉu", "TTTTTTXXTXTTX": "Xỉu",
+    "TTTTTTXXTXTXT": "Xỉu", "TTTTTTXXTXTXX": "Xỉu",
+    "TTTTTTXXTXXTT": "Tài", "TTTTTTXXTXXTX": "Tài",
+    "TTTTTTXXTXXXT": "Xỉu", "TTTTTTXXTXXXX": "Tài",
+    "TTTTTTXXXTTTT": "Tài", "TTTTTTXXXTTTX": "Tài",
+    "TTTTTTXXXTTXT": "Xỉu", "TTTTTTXXXTTXX": "Xỉu",
+    "TTTTTTXXXTXTT": "Tài", "TTTTTTXXXTXTX": "Tài",
+    "TTTTTTXXXTXXT": "Tài", "TTTTTTXXXTXXX": "Tài",
+    "TTTTTTXXXXTTT": "Tài", "TTTTTTXXXXTTX": "Tài",
+    "TTTTTTXXXXTXT": "Xỉu", "TTTTTTXXXXTXX": "Xỉu",
+    "TTTTTTXXXXXTT": "Tài", "TTTTTTXXXXXTX": "Tài",
+    "TTTTTTXXXXXXT": "Xỉu", "TTTTTTXXXXXXX": "Xỉu",
 }
+
 
 def tx_encode(results, length):
     if len(results) < length: return None
@@ -159,7 +96,7 @@ def tx_encode(results, length):
 
 
 # =====================================================================
-# HTML TEMPLATE (giữ nguyên 100%)
+# HTML TEMPLATE (giữ nguyên)
 # =====================================================================
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -470,8 +407,79 @@ def _entropy_bits(arr):
     return -(p * math.log2(p) + (1-p) * math.log2(1-p))
 
 
+def _detect_pattern_321(results):
+    """
+    ✅ Phát hiện cầu 3-2-1 hoặc 1-2-3 (cầu bậc thang).
+    Trả về: (pattern_name, next_pred, weight) hoặc None.
+    VD: 3 Tài → 2 Xỉu → 1 Tài → dự đoán tiếp theo theo pattern
+    """
+    if len(results) < 8: return None
+    # Đảo ngược để dễ đọc xuôi thời gian (cũ → mới)
+    seq = results[:10][::-1]
+    groups = []
+    i = 0
+    while i < len(seq):
+        j = i
+        while j + 1 < len(seq) and seq[j] == seq[j+1]:
+            j += 1
+        groups.append((seq[i], j - i + 1))
+        i = j + 1
+
+    if len(groups) < 3: return None
+    last3 = groups[-3:]
+    lens = [g[1] for g in last3]
+    vals = [g[0] for g in last3]
+
+    # Cầu 3-2-1 tăng dần: 1-2-3 → tiếp theo có thể bẻ (về 1)
+    if lens == [1, 2, 3]:
+        return ("pattern_123", vals[2], 14)  # bám tiếp vì đang mở rộng
+    # Cầu 3-2-1 giảm dần: 3-2-1 → tiếp theo có thể bám 1 hoặc mở 2
+    if lens == [3, 2, 1]:
+        return ("pattern_321", _opp(vals[2]), 13)  # hay bẻ sau 1
+    # Cầu 2-2-2 đều
+    if lens == [2, 2, 2]:
+        return ("pattern_222", _opp(vals[2]), 11)
+    # Cầu 1-1-1 (alternation)
+    if lens == [1, 1, 1]:
+        return ("pattern_111", _opp(vals[2]), 12)
+    # Cầu 2-1-2 hoặc 1-2-1 (zigzag)
+    if lens in ([2, 1, 2], [1, 2, 1]):
+        return ("pattern_zigzag", _opp(vals[2]), 10)
+    # Cầu 3-3-3 hoặc 4-4-4 (bệt đều)
+    if lens[0] == lens[1] == lens[2] and lens[0] >= 3:
+        return ("pattern_uniform", _opp(vals[2]), 12)
+
+    return None
+
+
+def _detect_12_pattern(results):
+    """
+    ✅ Cầu 1-2 (một đơn một đôi): T-X-X-T-T-X-X...
+    """
+    if len(results) < 9: return None
+    seq = results[:9][::-1]
+    groups = []
+    i = 0
+    while i < len(seq):
+        j = i
+        while j + 1 < len(seq) and seq[j] == seq[j+1]:
+            j += 1
+        groups.append((seq[i], j - i + 1))
+        i = j + 1
+
+    if len(groups) < 4: return None
+    last4 = [g[1] for g in groups[-4:]]
+    if last4 == [1, 2, 1, 2] or last4 == [2, 1, 2, 1]:
+        # Theo pattern thì tiếp theo là 1 hoặc 2 → dự đoán theo chu kỳ
+        if last4 == [1, 2, 1, 2]:
+            return ("pattern_1212", groups[-1][0], 11)  # chu kỳ 2 → bám
+        else:
+            return ("pattern_2121", _opp(groups[-1][0]), 11)
+    return None
+
+
 # =====================================================================
-# PATTERN LOOKUP
+# PATTERN LOOKUP 13 PHIÊN
 # =====================================================================
 def algo_pattern_lookup(results):
     key = tx_encode(results, 13)
@@ -481,69 +489,106 @@ def algo_pattern_lookup(results):
 
 
 # =====================================================================
-# CORE STATISTICAL ALGORITHMS
+# ✅ 11+ THUẬT TOÁN ĐẦY ĐỦ CÁC LOẠI CẦU
 # =====================================================================
-def algo_bet_break(results, groups):
+
+# --- 1. BẮT BỆT (streak follow) - ưu tiên số 1 ---
+def algo_streak_follow(results, groups):
+    """
+    ✅ BÁM BỆT: streak 2-9 bám tiếp, chỉ chuyển tiếp khi quá dài.
+    """
     if not groups or len(results) < 3: return []
     sigs = []
     r0 = results[0]; g0 = groups[0]
-    if   g0 >= 12: sigs.append((_opp(r0), 44, "bet_12plus"))
-    elif g0 >= 10: sigs.append((_opp(r0), 40, "bet_10plus"))
-    elif g0 >= 8:  sigs.append((_opp(r0), 34, "bet_8_9"))
-    elif g0 >= 6:  sigs.append((_opp(r0), 26, "bet_6_7"))
-    elif g0 == 5:  sigs.append((_opp(r0), 19, "bet_5"))
-    elif g0 == 4:  sigs.append((_opp(r0), 13, "bet_4"))
-    elif g0 == 3:
-        if len(groups) >= 5:
-            past = groups[1:min(12, len(groups))]
-            avg_g = sum(past) / len(past)
-            if   avg_g < 2.3: sigs.append((_opp(r0), 14, "bet_3_break"))
-            elif avg_g >= 3.5: sigs.append((r0, 12, "bet_3_cont"))
-            else:              sigs.append((_opp(r0), 10, "bet_3_def"))
-        else: sigs.append((_opp(r0), 10, "bet_3_def"))
+
+    streak_weights = {
+        2: 15, 3: 18, 4: 20, 5: 20,
+        6: 17, 7: 13, 8: 9, 9: 6,
+    }
+    if g0 in streak_weights:
+        sigs.append((r0, streak_weights[g0], f"streak_follow_{g0}"))
     return sigs
 
 
+# --- 2. BẺ BỆT THEO THỐNG KÊ (chỉ bẻ khi vượt max lịch sử) ---
+def algo_streak_break_stat(results):
+    n = len(results)
+    if n < 25: return None
+    streak = _count_streak(results)
+    if streak < 6: return None
+
+    current = results[0]
+    same_streaks = []
+    i = 0
+    while i < len(results[:60]):
+        j = i
+        while j + 1 < len(results[:60]) and results[j] == results[j+1]:
+            j += 1
+        length = j - i + 1
+        if results[i] == current and length >= 2:
+            same_streaks.append(length)
+        i = j + 1
+
+    if not same_streaks: return None
+    max_len = max(same_streaks)
+    avg_len = sum(same_streaks) / len(same_streaks)
+
+    if streak > max_len:
+        return (_opp(current), 24, "streak_break_beyond_max")
+    if streak == max_len and streak >= 8:
+        return (_opp(current), 17, "streak_break_at_max")
+    if streak <= avg_len * 1.3:
+        return (current, 14, "streak_hold_below_avg")
+    return None
+
+
+# --- 3. BÁM BỆT MOMENTUM ---
+def algo_streak_momentum(results):
+    n = len(results)
+    if n < 10: return None
+    streak = _count_streak(results)
+    if streak < 3 or streak > 8: return None
+
+    current = results[0]
+    recent = results[:10]
+    ratio = recent.count(current) / len(recent)
+    if ratio >= 0.6:
+        return (current, 13, "streak_momentum_strong")
+    if ratio >= 0.5:
+        return (current, 9, "streak_momentum_mild")
+    return None
+
+
+# --- 4. CẦU 3-2-1 & BẬC THANG ---
+def algo_pattern_321(results):
+    p = _detect_pattern_321(results)
+    if p:
+        name, pred, weight = p
+        return (pred, weight, name)
+    return None
+
+
+# --- 5. CẦU 1-2 (đơn-đôi) ---
+def algo_pattern_12(results):
+    p = _detect_12_pattern(results)
+    if p:
+        name, pred, weight = p
+        return (pred, weight, name)
+    return None
+
+
+# --- 6. ALTERNATION (1-1) ---
 def algo_alternation(results):
     if len(results) < 4: return None
     alt = _count_alternations(results)
-    if   alt >= 8: return (_opp(results[0]), 28, "alt_8plus")
-    elif alt >= 6: return (_opp(results[0]), 24, "alt_6_7")
-    elif alt >= 4: return (_opp(results[0]), 17, "alt_4_5")
+    if   alt >= 8: return (_opp(results[0]), 26, "alt_8plus")
+    elif alt >= 6: return (_opp(results[0]), 22, "alt_6_7")
+    elif alt >= 4: return (_opp(results[0]), 16, "alt_4_5")
     elif alt >= 3: return (_opp(results[0]), 11, "alt_3")
     return None
 
 
-def algo_recency_momentum(results):
-    n = len(results)
-    if n < 8: return None
-    st = sx = 0
-    for i in range(min(n, 20)):
-        w = 20 - i
-        if results[i] == "Tài": st += w
-        else: sx += w
-    total = st + sx
-    if total == 0: return None
-    if max(st, sx) / total < 0.68: return None
-    return ("Tài", 10, "recency_tai") if st > sx else ("Xỉu", 10, "recency_xiu")
-
-
-def algo_weighted_trend(results):
-    n = len(results)
-    if n < 10: return None
-    weights = [10.0, 8.0, 6.0, 4.0, 3.0, 2.0, 1.5, 1.0, 0.8, 0.5]
-    tw = sw = 0.0
-    for i, r in enumerate(results[:10]):
-        w = weights[i]
-        tw += w
-        if r == "Tài": sw += w
-    if tw == 0: return None
-    ratio = sw / tw
-    if ratio >= 0.72: return ("Tài", 11, "wt_trend_tai")
-    if ratio <= 0.28: return ("Xỉu", 11, "wt_trend_xiu")
-    return None
-
-
+# --- 7. MARKOV 1 ---
 def algo_markov1(results):
     if len(results) < 15: return None
     tr = {"Tài": {"Tài": 0, "Xỉu": 0}, "Xỉu": {"Tài": 0, "Xỉu": 0}}
@@ -557,6 +602,7 @@ def algo_markov1(results):
     return None
 
 
+# --- 8. MARKOV 2 ---
 def algo_markov2(results):
     if len(results) < 20: return None
     key = (results[1], results[0])
@@ -574,87 +620,7 @@ def algo_markov2(results):
     return None
 
 
-def algo_multi_window(results):
-    n = len(results)
-    if n < 15: return None
-    w5 = results[:5].count("Tài"); w10 = results[:10].count("Tài"); w15 = results[:15].count("Tài")
-    vt = sum([w5 >= 4, w10 >= 7, w15 >= 10]); vx = sum([w5 <= 1, w10 <= 3, w15 <= 5])
-    if   vt >= 2: return ("Tài", 12, "multi_window")
-    elif vx >= 2: return ("Xỉu", 12, "multi_window")
-    return None
-
-
-def algo_hot_tilt(results):
-    n = len(results)
-    if n < 12: return None
-    for w, hi, lo in ((8, 7, 1), (12, 10, 2)):
-        if n < w: continue
-        tc = results[:w].count("Tài")
-        if tc >= hi: return ("Xỉu", 15 if w == 8 else 13, f"hot_tai_{w}")
-        elif tc <= lo: return ("Tài", 15 if w == 8 else 13, f"hot_xiu_{w}")
-    return None
-
-
-def algo_tilt_ratio(results):
-    n = len(results)
-    if n < 15: return None
-    for window in (15, 20, 30):
-        if n < window: continue
-        tr = results[:window].count("Tài") / window
-        if   tr >= 0.73: return ("Xỉu", 11, f"tilt_tai_{window}")
-        elif tr <= 0.27: return ("Tài", 11, f"tilt_xiu_{window}")
-    return None
-
-
-def algo_entropy(results):
-    if len(results) < 20: return None
-    window = results[:20]
-    p_tai = window.count("Tài") / 20
-    if p_tai in (0, 1): return ("Tài" if p_tai > 0.5 else "Xỉu", 9, "entropy_zero")
-    entropy = _entropy_bits(window)
-    if entropy < 0.6: return ("Tài" if p_tai > 0.5 else "Xỉu", 10, "entropy_low")
-    return None
-
-
-def algo_simple_enhanced(results):
-    if len(results) < 3: return None
-    r0 = results[0]; streak = 1
-    for r in results[1:]:
-        if r == r0: streak += 1
-        else: break
-    if streak == 1:
-        if len(results) >= 3 and results[1] == results[2]:
-            return (_opp(r0), 8, "simple_break_pair")
-        return (r0, 8, "simple_continue")
-    if streak == 2: return (r0, 9, "simple_momentum")
-    if streak == 3: return (_opp(r0), 10, "simple_break_3")
-    if streak >= 4: return (_opp(r0), 12, "simple_break_4")
-    return None
-
-
-def algo_runlength_compare(results):
-    n = len(results)
-    if n < 20: return None
-    groups = get_groups(results)
-    if len(groups) < 4: return None
-    cur = groups[0]; past = groups[1:min(20, len(groups))]
-    if not past: return None
-    avg = sum(past) / len(past)
-    if cur > avg * 1.6 and cur >= 3: return (_opp(results[0]), 12, "rl_break")
-    if cur < 1.5 and avg >= 2.5: return (results[0], 8, "rl_continue")
-    return None
-
-
-def algo_pressure_pullback(results):
-    n = len(results)
-    if n < 18: return None
-    w = results[:18]
-    tc = w.count("Tài")
-    if tc >= 15: return ("Xỉu", 13, "pressure_tai")
-    if tc <= 3:  return ("Tài", 13, "pressure_xiu")
-    return None
-
-
+# --- 9. PATTERN 3 PHIÊN (tìm lịch sử khớp) ---
 def algo_consecutive_pattern(results):
     if len(results) < 25: return None
     key = tuple(results[:3])
@@ -672,6 +638,18 @@ def algo_consecutive_pattern(results):
     return None
 
 
+# --- 10. ÁP LỰC CÂN BẰNG (pressure pullback) ---
+def algo_pressure_pullback(results):
+    n = len(results)
+    if n < 18: return None
+    w = results[:18]
+    tc = w.count("Tài")
+    if tc >= 15: return ("Xỉu", 13, "pressure_tai")
+    if tc <= 3:  return ("Tài", 13, "pressure_xiu")
+    return None
+
+
+# --- 11. MEAN REVERSION (đảo chiều dài hạn) ---
 def algo_mean_reversion(results):
     n = len(results)
     if n < 30: return None
@@ -682,6 +660,7 @@ def algo_mean_reversion(results):
     return None
 
 
+# --- 12. VOLATILITY BREAK ---
 def algo_volatility_break(results):
     n = len(results)
     if n < 12: return None
@@ -695,6 +674,116 @@ def algo_volatility_break(results):
     return None
 
 
+# --- 13. MULTI-WINDOW ---
+def algo_multi_window(results):
+    n = len(results)
+    if n < 15: return None
+    w5 = results[:5].count("Tài"); w10 = results[:10].count("Tài"); w15 = results[:15].count("Tài")
+    vt = sum([w5 >= 4, w10 >= 7, w15 >= 10]); vx = sum([w5 <= 1, w10 <= 3, w15 <= 5])
+    if   vt >= 2: return ("Tài", 12, "multi_window")
+    elif vx >= 2: return ("Xỉu", 12, "multi_window")
+    return None
+
+
+# --- 14. HOT TILT ---
+def algo_hot_tilt(results):
+    n = len(results)
+    if n < 12: return None
+    for w, hi, lo in ((8, 7, 1), (12, 10, 2)):
+        if n < w: continue
+        tc = results[:w].count("Tài")
+        if tc >= hi: return ("Xỉu", 14 if w == 8 else 12, f"hot_tai_{w}")
+        elif tc <= lo: return ("Tài", 14 if w == 8 else 12, f"hot_xiu_{w}")
+    return None
+
+
+# --- 15. ENTROPY ---
+def algo_entropy(results):
+    if len(results) < 20: return None
+    window = results[:20]
+    p_tai = window.count("Tài") / 20
+    if p_tai in (0, 1): return ("Tài" if p_tai > 0.5 else "Xỉu", 9, "entropy_zero")
+    entropy = _entropy_bits(window)
+    if entropy < 0.6: return ("Tài" if p_tai > 0.5 else "Xỉu", 10, "entropy_low")
+    return None
+
+
+# --- 16. SIMPLE ENHANCED ---
+def algo_simple_enhanced(results):
+    if len(results) < 3: return None
+    r0 = results[0]; streak = 1
+    for r in results[1:]:
+        if r == r0: streak += 1
+        else: break
+    if streak == 1:
+        if len(results) >= 3 and results[1] == results[2]:
+            return (_opp(r0), 8, "simple_break_pair")
+        return (r0, 8, "simple_continue")
+    if streak == 2: return (r0, 10, "simple_momentum")
+    if streak == 3: return (r0, 11, "simple_hold_3")
+    if streak >= 4: return (r0, 9, "simple_hold_4plus")
+    return None
+
+
+# --- 17. RUNLENGTH COMPARE ---
+def algo_runlength_compare(results):
+    n = len(results)
+    if n < 20: return None
+    groups = get_groups(results)
+    if len(groups) < 4: return None
+    cur = groups[0]; past = groups[1:min(20, len(groups))]
+    if not past: return None
+    avg = sum(past) / len(past)
+    if cur > avg * 1.8 and cur >= 5: return (_opp(results[0]), 11, "rl_break")
+    if cur < avg * 0.8 and avg >= 2.5: return (results[0], 8, "rl_continue")
+    return None
+
+
+# --- 18. WEIGHTED TREND ---
+def algo_weighted_trend(results):
+    n = len(results)
+    if n < 10: return None
+    weights = [10.0, 8.0, 6.0, 4.0, 3.0, 2.0, 1.5, 1.0, 0.8, 0.5]
+    tw = sw = 0.0
+    for i, r in enumerate(results[:10]):
+        w = weights[i]
+        tw += w
+        if r == "Tài": sw += w
+    if tw == 0: return None
+    ratio = sw / tw
+    if ratio >= 0.72: return ("Tài", 11, "wt_trend_tai")
+    if ratio <= 0.28: return ("Xỉu", 11, "wt_trend_xiu")
+    return None
+
+
+# --- 19. RECENCY MOMENTUM ---
+def algo_recency_momentum(results):
+    n = len(results)
+    if n < 8: return None
+    st = sx = 0
+    for i in range(min(n, 20)):
+        w = 20 - i
+        if results[i] == "Tài": st += w
+        else: sx += w
+    total = st + sx
+    if total == 0: return None
+    if max(st, sx) / total < 0.68: return None
+    return ("Tài", 10, "recency_tai") if st > sx else ("Xỉu", 10, "recency_xiu")
+
+
+# --- 20. TILT RATIO ---
+def algo_tilt_ratio(results):
+    n = len(results)
+    if n < 15: return None
+    for window in (15, 20, 30):
+        if n < window: continue
+        tr = results[:window].count("Tài") / window
+        if   tr >= 0.73: return ("Xỉu", 11, f"tilt_tai_{window}")
+        elif tr <= 0.27: return ("Tài", 11, f"tilt_xiu_{window}")
+    return None
+
+
+# --- 21. STREAK PROBABILITY ---
 def algo_streak_probability(results):
     n = len(results)
     if n < 25: return None
@@ -715,32 +804,36 @@ def algo_streak_probability(results):
         i = j + 1
     if totals < 3: return None
     p_break = breaks / totals
-    if p_break >= 0.6: return (_opp(current), 13, "streak_break_prob")
-    if p_break <= 0.4: return (current, 10, "streak_cont_prob")
+    if p_break >= 0.6: return (_opp(current), 12, "streak_break_prob")
+    if p_break <= 0.4: return (current, 11, "streak_cont_prob")
     return None
 
 
 # =====================================================================
-# MASTER ANALYZER
+# MASTER ANALYZER — 21+ SIGNALS
 # =====================================================================
 def analyze_full_bridge(results):
     if len(results) < 3: return []
     signals = []
     groups = get_groups(results)
 
-    signals.extend(algo_bet_break(results, groups))
-
+    # Pattern DB (nếu có)
     pdb = algo_pattern_lookup(results)
     if pdb: signals.append(pdb)
 
-    alt = algo_alternation(results)
-    if alt: signals.append(alt)
+    # Bắt bệt (ưu tiên)
+    signals.extend(algo_streak_follow(results, groups))
 
-    for fn in (algo_recency_momentum, algo_weighted_trend, algo_markov1, algo_markov2,
-               algo_multi_window, algo_hot_tilt, algo_tilt_ratio,
-               algo_entropy, algo_simple_enhanced, algo_runlength_compare,
-               algo_pressure_pullback, algo_consecutive_pattern,
-               algo_mean_reversion, algo_volatility_break, algo_streak_probability):
+    # Chạy tất cả thuật toán
+    for fn in (algo_streak_break_stat, algo_streak_momentum,
+               algo_pattern_321, algo_pattern_12,
+               algo_alternation, algo_markov1, algo_markov2,
+               algo_consecutive_pattern, algo_pressure_pullback,
+               algo_mean_reversion, algo_volatility_break,
+               algo_multi_window, algo_hot_tilt, algo_entropy,
+               algo_simple_enhanced, algo_runlength_compare,
+               algo_weighted_trend, algo_recency_momentum,
+               algo_tilt_ratio, algo_streak_probability):
         s = fn(results)
         if s: signals.append(s)
 
@@ -773,28 +866,18 @@ def full_bridge_predict(results):
 
 
 # =====================================================================
-# ✅ BOOTSTRAP PREDICTOR - Dự đoán ngay sau reset (không cần 3 phiên)
+# ✅ BOOTSTRAP — Dự đoán ngay sau reset
 # =====================================================================
 def bootstrap_predict(results):
-    """
-    Khi ít dữ liệu (<3 phiên), dùng logic đặc biệt để vẫn đưa ra dự đoán
-    thay vì trả về "-".
-    """
     n = len(results)
     if n == 0:
-        # Không có phiên nào → dự đoán mặc định 50/50, ưu tiên Tài
         return "Tài", 50, "bootstrap_empty"
     if n == 1:
-        # 1 phiên → đảo chiều (xác suất break cao)
         return _opp(results[0]), 55, "bootstrap_1_opp"
     if n == 2:
         if results[0] == results[1]:
-            # 2 phiên giống nhau → đảo chiều
             return _opp(results[0]), 58, "bootstrap_2_opp"
-        else:
-            # 2 phiên khác nhau → theo phiên gần nhất (momentum)
-            return results[0], 54, "bootstrap_2_momentum"
-    # ≥3 phiên → chạy thuật toán đầy đủ
+        return results[0], 54, "bootstrap_2_momentum"
     pred, conf, detail = full_bridge_predict_adaptive(results)
     return pred, conf, detail
 
@@ -841,11 +924,11 @@ def full_bridge_predict_adaptive(results, replay_n=100):
         accuracy_mult = 0.4 + max(0.0, min(1.9, (acc - 0.3) * 3.0))
 
         if regime == "streak":
-            if "break" in name or "bet_" in name:
-                accuracy_mult *= 1.10
+            if "streak_follow" in name or "hold" in name or "momentum" in name:
+                accuracy_mult *= 1.15
         elif regime == "alternation":
             if "alt_" in name or "pattern" in name or "vol_" in name:
-                accuracy_mult *= 1.10
+                accuracy_mult *= 1.12
 
         adjusted = weight * accuracy_mult
         if pred_sig == "Tài": st += adjusted
@@ -889,7 +972,6 @@ def get_prediction_for(valid, i):
     if key in PREDICTION_CACHE:
         return PREDICTION_CACHE[key]
     hist = [v['result'] for v in valid[:i]][::-1]
-    # ✅ Dùng bootstrap để luôn có dự đoán, kể cả khi < 3 phiên
     pred, conf, _ = bootstrap_predict(hist)
     if pred == "-":
         result = ("-", 50, None)
@@ -963,8 +1045,8 @@ def history():
         next_phien = latest_session['phien'] + 1
         history_for_next = [v['result'] for v in valid][::-1]
 
-        # ✅ Dùng bootstrap - luôn có dự đoán ngay, không đợi 3 phiên
         base_pred, base_conf, _ = bootstrap_predict(history_for_next)
+        if not isinstance(_, list): pass
         next_pred, next_conf, flipped, reason = apply_recovery(base_pred, base_conf, loss_streak)
 
         out.append({
@@ -1017,7 +1099,6 @@ def predict():
         results = [v['result'] for v in valid][::-1]
 
         loss_streak = compute_loss_streak(valid)
-        # ✅ Bootstrap predictor
         base_pred, base_conf, detail = bootstrap_predict(results)
         if not isinstance(detail, list): detail = []
         pred, conf, flipped, reason = apply_recovery(base_pred, base_conf, loss_streak)
@@ -1080,7 +1161,7 @@ def lc79():
         last = valid[-1]; next_phien = last['phien'] + 1
 
         return jsonify({
-            'Id': 'le minh v28', 'Phien': str(next_phien),
+            'Id': 'le minh v29', 'Phien': str(next_phien),
             'Ket_qua': last['result'].lower(), 'Lich_su': lich_su,
             'Du_doan': pred, 'Do_tin_cay': conf_str,
             'Base_du_doan': base_pred if flipped else None,
@@ -1092,7 +1173,7 @@ def lc79():
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/betvipmd5')
+@app.route('/lc79md5')
 def lc79md5():
     global RESET_ID
     try:
@@ -1151,9 +1232,6 @@ def lc79md5():
 
 @app.route('/api/reset', methods=['POST'])
 def reset_api():
-    """
-    ✅ Reset thông minh: vẫn giữ 1 phiên mồi + bootstrap để dự đoán NGAY
-    """
     global RESET_ID, HISTORY_CACHE, PREDICTION_CACHE, BOOTSTRAP_SESSIONS
     try:
         raw_rows, success = fetch_sessions()
@@ -1161,7 +1239,6 @@ def reset_api():
             valid = sorted(raw_rows, key=lambda x: x['phien'])
             if valid:
                 RESET_ID = valid[-1]['phien']
-                # ✅ Lưu 1 phiên cuối làm mồi bootstrap
                 last_session = valid[-1]
                 HISTORY_CACHE = {last_session['phien']: last_session}
                 BOOTSTRAP_SESSIONS = [last_session]
