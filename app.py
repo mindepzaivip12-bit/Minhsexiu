@@ -1,6 +1,7 @@
 import os
 import math
 import time
+import hashlib
 import traceback
 from datetime import datetime
 from collections import defaultdict
@@ -21,6 +22,15 @@ BOOTSTRAP_SESSIONS = []
 LAST_FETCH_OK_TS = 0
 FETCH_RETRY = 2
 FETCH_TIMEOUT = 6
+
+# Ngưỡng cấu hình thuật toán LC79
+WINDOW_SIZE = 5                # cửa sổ 5 phiên
+FINGERPRINT_MIN_MATCH = 3      # cần >=3 lần xuất hiện để tin fingerprint
+FINGERPRINT_STRONG = 0.72      # tỷ lệ để coi là tín hiệu mạnh
+TRANSITION_MIN_SAMPLES = 8     # mẫu tối thiểu cho transition matrix
+MOMENTUM_MIN_STREAK = 3
+ENTROPY_HIGH = 0.98
+ENTROPY_LOW = 0.55
 
 
 # =====================================================================
@@ -51,385 +61,290 @@ def _entropy(seq):
     if not seq:
         return 0.0
     t = seq.count("Tài")
-    x = len(seq) - t
     p = t / len(seq)
-    q = x / len(seq)
+    q = 1 - p
     e = 0.0
     if p > 0:
         e -= p * math.log2(p)
     if q > 0:
         e -= q * math.log2(q)
-    return e  # 0..1
+    return e
+
+
+def _to_bits(results):
+    """Chuyển list kết quả (mới->cũ) thành chuỗi bit '1'=Tài, '0'=Xỉu."""
+    return "".join("1" if r == "Tài" else "0" for r in results)
+
+
+def _md5(s):
+    return hashlib.md5(s.encode()).hexdigest()
 
 
 # =====================================================================
-# HỆ THỐNG CẦU 5 PHIÊN (NỘI BỘ)
+# THUẬT TOÁN LC79 MD5 — 3 TẦNG
 # =====================================================================
-def analyze_5session_pattern(results):
-    if len(results) < 5:
+
+# ---------- TẦNG 1: MD5 FINGERPRINT MATCHING ----------
+def lc79_fingerprint(results):
+    """
+    Mã hoá 5 phiên gần nhất thành fingerprint.
+    Duyệt toàn bộ lịch sử: mỗi lần fingerprint xuất hiện -> ghi nhận kết quả phiên kế tiếp.
+    Trả về (pred, weight, meta).
+    """
+    if len(results) < WINDOW_SIZE + 5:
         return None
 
-    seq = results[:5]
-    seq_old_to_new = seq[::-1]
+    bits = _to_bits(results)              # mới -> cũ
+    cur_fp = bits[:WINDOW_SIZE]
+    cur_hash = _md5(cur_fp)
 
-    alternations = sum(1 for i in range(4) if seq[i] != seq[i + 1])
-    streak = 1
-    for r in seq[1:]:
-        if r == seq[0]:
-            streak += 1
-        else:
-            break
+    tai_next = xiu_next = 0
+    total = 0
+    # Duyệt lịch sử: tại vị trí i, fingerprint là bits[i:i+5], kết quả kế là bits[i-1] (phiên mới hơn)
+    for i in range(1, len(bits) - WINDOW_SIZE):
+        if bits[i:i + WINDOW_SIZE] == cur_fp:
+            nxt = bits[i - 1]   # kết quả phiên mới hơn
+            if nxt == "1":
+                tai_next += 1
+            else:
+                xiu_next += 1
+            total += 1
 
-    pattern_type = "unknown"
-    pred = None
-    base_conf = 50
+    if total < FINGERPRINT_MIN_MATCH:
+        return None
 
-    if alternations >= 4:
-        pattern_type = "1-1"
-        pred = _opp(seq[0])
-        base_conf = 74
-    elif streak >= 5:
-        pattern_type = "Thuan5"
-        pred = seq[0]
-        base_conf = 66
-    elif streak == 4:
-        pattern_type = "Thuan4"
-        pred = seq[0]
-        base_conf = 61
-    elif streak == 3:
-        pattern_type = "Thuan3"
-        pred = seq[0]
-        base_conf = 57
-    elif alternations == 3:
-        pattern_type = "Nghich3"
-        pred = _opp(seq[0])
-        base_conf = 59
-    elif alternations == 2:
-        groups = []
-        i = 0
-        while i < len(seq_old_to_new):
-            j = i
-            while j + 1 < len(seq_old_to_new) and seq_old_to_new[j] == seq_old_to_new[j + 1]:
-                j += 1
-            groups.append((seq_old_to_new[i], j - i + 1))
-            i = j + 1
-
-        lens = [g[1] for g in groups]
-        if lens in ([1, 2, 1, 1], [1, 1, 2, 1], [2, 1, 1, 1], [1, 1, 1, 2]):
-            pattern_type = "Nghich_zigzag"
-            pred = _opp(seq[0])
-            base_conf = 56
-        elif lens in ([2, 2, 1], [1, 2, 2], [2, 1, 2]):
-            pattern_type = "Dao_212"
-            pred = _opp(seq[0])
-            base_conf = 58
-        else:
-            pattern_type = "Honhop"
-            pred = seq[0]
-            base_conf = 52
+    p_tai = tai_next / total
+    if p_tai >= 0.5:
+        pred = "Tài"
+        ratio = p_tai
     else:
-        pattern_type = "Honhop"
-        pred = seq[0]
-        base_conf = 52
+        pred = "Xỉu"
+        ratio = 1 - p_tai
 
-    if pred == seq[0]:
-        base_conf -= 2
-    else:
-        base_conf += 1
+    # weight scale: 10..22 tuỳ độ mạnh + số mẫu
+    sample_bonus = min(6, int(math.log2(total + 1) * 2))
+    weight = 10 + sample_bonus + int((ratio - 0.5) * 20)
+    weight = max(10, min(24, weight))
 
-    conf = int(max(50, min(90, base_conf)))
-
-    return {
-        "pattern_type": pattern_type,
-        "prediction": pred,
-        "confidence": conf,
-        "alternations": alternations,
-        "streak": streak,
-        "sequence": "".join("T" if r == "Tài" else "X" for r in seq_old_to_new),
-    }
+    return (pred, weight, {
+        "fp": cur_hash[:8],
+        "samples": total,
+        "ratio": round(ratio, 3),
+        "tai_next": tai_next,
+        "xiu_next": xiu_next,
+    })
 
 
-# =====================================================================
-# THUẬT TOÁN BỔ TRỢ (CHẠY NGẦM)
-# =====================================================================
-def algo_markov1_soft(results):
-    if len(results) < 15:
-        return None
-    tr = {"Tài": {"Tài": 0, "Xỉu": 0}, "Xỉu": {"Tài": 0, "Xỉu": 0}}
-    for i in range(min(len(results), 40) - 1):
-        tr[results[i + 1]][results[i]] += 1
-    last = results[0]
-    tot = sum(tr[last].values())
-    if tot < 5:
-        return None
-    p = tr[last]["Tài"] / tot
-    if p >= 0.68:
-        return ("Tài", 12, "markov1")
-    if p <= 0.32:
-        return ("Xỉu", 12, "markov1")
-    return None
-
-
-def algo_markov2_soft(results):
+# ---------- TẦNG 2: MD5 TRANSITION MATRIX ----------
+def lc79_transition_md5(results):
+    """
+    Ma trận chuyển đổi dựa trên MD5 hash của 3 phiên liên tiếp.
+    Mỗi 3-gram -> hash -> đếm kết quả phiên kế tiếp.
+    """
     if len(results) < 20:
         return None
-    key = (results[1], results[0])
+
+    bits = _to_bits(results)
+    cur_key = _md5(bits[:3])
+
     tr = defaultdict(lambda: {"Tài": 0, "Xỉu": 0})
-    for i in range(min(len(results), 50) - 2):
-        k = (results[i + 2], results[i + 1])
-        tr[k][results[i]] += 1
-    d = tr.get(key)
+    for i in range(1, len(bits) - 3):
+        k = _md5(bits[i:i + 3])
+        nxt = bits[i - 1]
+        if nxt == "1":
+            tr[k]["Tài"] += 1
+        else:
+            tr[k]["Xỉu"] += 1
+
+    d = tr.get(cur_key)
     if not d:
         return None
     tot = d["Tài"] + d["Xỉu"]
-    if tot < 5:
+    if tot < TRANSITION_MIN_SAMPLES:
         return None
-    p = d["Tài"] / tot
-    if p >= 0.73:
-        return ("Tài", 14, "markov2")
-    if p <= 0.27:
-        return ("Xỉu", 14, "markov2")
-    return None
 
+    p_tai = d["Tài"] / tot
+    if p_tai >= 0.5:
+        pred = "Tài"
+        ratio = p_tai
+    else:
+        pred = "Xỉu"
+        ratio = 1 - p_tai
 
-def algo_pressure_balance(results):
-    if len(results) < 15:
+    # yêu cầu ratio đủ cao mới kích hoạt
+    if ratio < 0.62:
         return None
-    w = results[:15]
-    tc = w.count("Tài")
-    if tc >= 13:
-        return ("Xỉu", 11, "pressure_tai")
-    if tc <= 2:
-        return ("Tài", 11, "pressure_xiu")
-    return None
+
+    weight = 8 + int((ratio - 0.6) * 40)
+    weight = max(8, min(20, weight))
+
+    return (pred, weight, {
+        "key": cur_key[:8],
+        "samples": tot,
+        "ratio": round(ratio, 3),
+    })
 
 
-def algo_momentum_controlled(results):
+# ---------- TẦNG 3: MOMENTUM + ENTROPY ADAPTIVE ----------
+def lc79_momentum_entropy(results):
+    """
+    Momentum: streak ngắn 3-6 phiên, kiểm tra tỷ lệ trong 10 phiên.
+    Entropy: điều chỉnh trọng số — entropy thấp -> bám streak, entropy cao -> theo nhịp gần.
+    """
     if len(results) < 10:
         return None
+
     streak = 1
     for r in results[1:]:
         if r == results[0]:
             streak += 1
         else:
             break
-    if streak < 3 or streak > 7:
-        return None
-    ratio = results[:10].count(results[0]) / 10
-    if ratio >= 0.65:
-        return (results[0], 10, "momentum_hold")
-    if ratio <= 0.35:
-        return (_opp(results[0]), 10, "momentum_break")
-    return None
 
+    e = _entropy(results[:20]) if len(results) >= 20 else _entropy(results)
 
-def algo_pattern_3history(results):
-    if len(results) < 25:
-        return None
-    key = tuple(results[:3])
-    tai_next = xiu_next = 0
-    for i in range(min(len(results), 60) - 3):
-        if tuple(results[i:i + 3]) == key:
-            nxt = results[i + 3]
-            if nxt == "Tài":
-                tai_next += 1
-            else:
-                xiu_next += 1
-    tot = tai_next + xiu_next
-    if tot < 3:
-        return None
-    p = tai_next / tot
-    if p >= 0.72:
-        return ("Tài", 13, "pattern3")
-    if p <= 0.28:
-        return ("Xỉu", 13, "pattern3")
-    return None
+    if MOMENTUM_MIN_STREAK <= streak <= 7:
+        ratio = results[:10].count(results[0]) / 10
+        if ratio >= 0.65:
+            # entropy thấp -> streak mạnh -> giữ
+            w = 12 if e < 0.85 else 9
+            return (results[0], w, {
+                "type": "momentum_hold",
+                "streak": streak,
+                "ratio": round(ratio, 3),
+                "entropy": round(e, 3),
+            })
+        if ratio <= 0.35:
+            w = 12 if e < 0.85 else 9
+            return (_opp(results[0]), w, {
+                "type": "momentum_break",
+                "streak": streak,
+                "ratio": round(ratio, 3),
+                "entropy": round(e, 3),
+            })
 
+    # entropy rất cao (cân bằng) -> theo nhịp đảo
+    if e >= ENTROPY_HIGH:
+        return (_opp(results[0]), 8, {
+            "type": "entropy_balanced_reverse",
+            "entropy": round(e, 3),
+        })
 
-def algo_pattern_4history(results):
-    if len(results) < 30:
-        return None
-    key = tuple(results[:4])
-    tai_next = xiu_next = 0
-    for i in range(min(len(results), 60) - 4):
-        if tuple(results[i:i + 4]) == key:
-            nxt = results[i + 4]
-            if nxt == "Tài":
-                tai_next += 1
-            else:
-                xiu_next += 1
-    tot = tai_next + xiu_next
-    if tot < 3:
-        return None
-    p = tai_next / tot
-    if p >= 0.75:
-        return ("Tài", 15, "pattern4")
-    if p <= 0.25:
-        return ("Xỉu", 15, "pattern4")
-    return None
+    # entropy rất thấp (1 chiều) -> đảo áp lực
+    if e <= ENTROPY_LOW and len(results) >= 20:
+        w = results[:20]
+        tc = w.count("Tài")
+        if tc >= 15:
+            return ("Xỉu", 11, {"type": "pressure_tai", "tai_count": tc})
+        if tc <= 5:
+            return ("Tài", 11, {"type": "pressure_xiu", "tai_count": tc})
 
-
-def algo_alternation_long(results):
-    if len(results) < 6:
-        return None
-    alt = 0
-    for i in range(min(len(results) - 1, 14)):
-        if results[i] != results[i + 1]:
-            alt += 1
-        else:
-            break
-    if alt >= 7:
-        return (_opp(results[0]), 16, "alt_7plus")
-    if alt >= 6:
-        return (_opp(results[0]), 14, "alt_6")
-    if alt >= 5:
-        return (_opp(results[0]), 11, "alt_5")
-    return None
-
-
-def algo_entropy_filter(results):
-    """Bộ lọc nhiễu: entropy thấp (1 chiều) -> bám xu hướng, entropy cao -> giảm tin cậy."""
-    if len(results) < 20:
-        return None
-    e = _entropy(results[:20])
-    if e <= 0.55:
-        # quá 1 chiều -> đảo
-        t = results[:20].count("Tài")
-        return (_opp("Tài" if t > 10 else "Xỉu"), 9, "entropy_skew")
-    if e >= 0.98:
-        # cân bằng tuyệt đối -> theo nhịp gần nhất
-        return (results[0], 8, "entropy_balanced")
-    return None
-
-
-def algo_reversal_pressure(results):
-    """Cầu đảo khi có 3-4 phiên liên tiếp cùng cửa nhưng tổng 12 phiên lệch mạnh."""
-    if len(results) < 12:
-        return None
-    streak = 1
-    for r in results[1:]:
-        if r == results[0]:
-            streak += 1
-        else:
-            break
-    if streak not in (3, 4):
-        return None
-    w = results[:12]
-    tc = w.count("Tài")
-    if tc >= 9 and results[0] == "Tài":
-        return ("Xỉu", 12, "reversal_tai")
-    if tc <= 3 and results[0] == "Xỉu":
-        return ("Tài", 12, "reversal_xiu")
     return None
 
 
 # =====================================================================
-# TỔNG HỢP — CẦU 5 PHIÊN + BỔ TRỢ
+# TỔNG HỢP LC79 MD5 — WEIGHTED VOTING + CALIBRATION
 # =====================================================================
-def _aggregate_support(support):
+def lc79_predict(results):
+    """
+    Tổng hợp 3 tầng LC79 MD5. Trả về (pred, conf, meta).
+    """
+    n = len(results)
+    if n == 0:
+        return "Tài", 50, {"mode": "empty"}
+
+    # Warmup ngắn: dùng luật nhịp đơn giản
+    if n == 1:
+        return _opp(results[0]), 54, {"mode": "warmup_1"}
+    if n == 2:
+        if results[0] == results[1]:
+            return _opp(results[0]), 57, {"mode": "warmup_2_reverse"}
+        return results[0], 53, {"mode": "warmup_2_hold"}
+    if n == 3:
+        if results[0] != results[1] and results[1] != results[2]:
+            return _opp(results[0]), 60, {"mode": "warmup_3_zigzag"}
+        if results[0] == results[1] == results[2]:
+            return results[0], 58, {"mode": "warmup_3_streak"}
+        return results[0], 54, {"mode": "warmup_3_mixed"}
+    if n < WINDOW_SIZE + 5:
+        # chưa đủ mẫu fingerprint — dùng momentum đơn giản
+        streak = 1
+        for r in results[1:]:
+            if r == results[0]:
+                streak += 1
+            else:
+                break
+        if streak >= 3:
+            return results[0], 57, {"mode": "warmup_momentum"}
+        return _opp(results[0]), 55, {"mode": "warmup_alt"}
+
+    layers = []
+    for fn in (lc79_fingerprint, lc79_transition_md5, lc79_momentum_entropy):
+        r = fn(results)
+        if r:
+            layers.append(r)
+
+    if not layers:
+        # fallback: theo nhịp gần nhất
+        return _opp(results[0]), 54, {"mode": "fallback_alt"}
+
+    # Weighted voting
     st = sx = 0.0
-    for p, w, _ in support:
-        if p == "Tài":
+    for pred, w, _ in layers:
+        if pred == "Tài":
             st += w
         else:
             sx += w
-    total = st + sx
-    if total <= 0:
-        return None, 0.0
+
+    total_w = st + sx
+    if total_w == 0:
+        return _opp(results[0]), 54, {"mode": "no_signal"}
+
     if st > sx:
-        return "Tài", st / total
-    if sx > st:
-        return "Xỉu", sx / total
-    return None, 0.5
+        pred = "Tài"
+        ratio = st / total_w
+    elif sx > st:
+        pred = "Xỉu"
+        ratio = sx / total_w
+    else:
+        return _opp(results[0]), 55, {"mode": "tie"}
 
+    # Confidence calibration
+    # base 55, cộng dồn theo ratio và số tầng đồng thuận
+    agree_layers = sum(1 for p, _, _ in layers if p == pred)
+    base_conf = 55
+    base_conf += int((ratio - 0.5) * 60)        # 0..30
+    base_conf += (agree_layers - 1) * 4          # 0..8 khi 3 tầng đồng thuận
+    if len(layers) == 1:
+        base_conf -= 6                            # 1 tầng -> giảm tin cậy
+    conf = max(50, min(90, base_conf))
 
-def predict_combined(results):
-    n = len(results)
-    if n == 0:
-        return "Tài", 50
-    if n == 1:
-        return _opp(results[0]), 53
-    if n == 2:
-        if results[0] == results[1]:
-            return _opp(results[0]), 56
-        return results[0], 52
-    if n == 3:
-        if results[0] != results[1] and results[1] != results[2]:
-            return _opp(results[0]), 59
-        if results[0] == results[1] == results[2]:
-            return results[0], 57
-        return results[0], 53
-    if n == 4:
-        alt = sum(1 for i in range(3) if results[i] != results[i + 1])
-        if alt >= 3:
-            return _opp(results[0]), 61
-        if results[0] == results[1] == results[2] == results[3]:
-            return results[0], 57
-        return results[0], 53
-
-    analysis = analyze_5session_pattern(results)
-    base_pred = analysis["prediction"]
-    base_conf = analysis["confidence"]
-
-    support = []
-    for fn in (algo_markov1_soft, algo_markov2_soft,
-               algo_pressure_balance, algo_momentum_controlled,
-               algo_pattern_3history, algo_pattern_4history,
-               algo_alternation_long, algo_entropy_filter,
-               algo_reversal_pressure):
-        s = fn(results)
-        if s:
-            support.append(s)
-
-    # Nếu base đã rất chắc -> giữ, chỉ tăng nhẹ nếu đồng thuận
-    if base_conf >= 66:
-        if support:
-            sp, ratio = _aggregate_support(support)
-            if sp == base_pred and ratio >= 0.70:
-                return base_pred, min(88, base_conf + 4)
-            if sp and sp != base_pred and ratio >= 0.85:
-                # tín hiệu bổ trợ phản đối rất mạnh -> giảm nhẹ tin cậy
-                return base_pred, max(50, base_conf - 5)
-        return base_pred, base_conf
-
-    if not support:
-        return base_pred, base_conf
-
-    support_pred, support_ratio = _aggregate_support(support)
-    if support_pred is None:
-        return base_pred, base_conf
-
-    # Đồng thuận mạnh
-    if support_pred == base_pred and support_ratio >= 0.70:
-        bonus = int((support_ratio - 0.5) * 40)
-        # nếu có >=3 tín hiệu đồng thuận -> boost mạnh
-        if len(support) >= 3:
-            bonus += 4
-        return base_pred, min(86, base_conf + bonus)
-
-    # Bổ trợ phản đối cực mạnh -> giảm tin cậy
-    if support_pred != base_pred and support_ratio >= 0.82:
-        return base_pred, max(50, base_conf - 8)
-
-    # Bổ trợ phản đối vừa + base yếu -> chuyển hướng
-    if support_pred != base_pred and base_conf < 58 and support_ratio >= 0.72:
-        return support_pred, min(76, 55 + int((support_ratio - 0.5) * 30))
-
-    return base_pred, base_conf
-
-
-def bootstrap_predict(results):
-    pred, conf = predict_combined(results)
-    return pred, conf, None
+    meta = {
+        "mode": "lc79_md5",
+        "layers": len(layers),
+        "agree": agree_layers,
+        "ratio": round(ratio, 3),
+        "details": [{"pred": p, "w": w, "info": info} for p, w, info in layers],
+    }
+    return pred, conf, meta
 
 
 # =====================================================================
-# AUTO-RECOVERY
+# ADAPTIVE RECOVERY (dựa trên entropy + loss streak)
 # =====================================================================
-def apply_recovery(base_pred, conf, loss_streak):
+def apply_recovery(base_pred, conf, loss_streak, results=None):
+    """
+    Recovery thông minh: chỉ flip khi tín hiệu đủ mạnh và entropy không quá cao.
+    """
     if loss_streak < 2:
         return base_pred, conf, False, None
-    # Recovery cần kết hợp cả conf + streak
+
+    # Nếu entropy quá cao (thị trường loạn) -> không flip, chỉ giảm conf
+    if results and len(results) >= 15:
+        e = _entropy(results[:20] if len(results) >= 20 else results)
+        if e >= 0.95 and loss_streak < 4:
+            return base_pred, max(50, conf - 6), False, "high_entropy_hold"
+
     if loss_streak >= 5:
         return _opp(base_pred), min(92, conf + 16), True, "flip_5plus"
     if loss_streak == 4:
@@ -499,7 +414,6 @@ def fetch_sessions():
                 try:
                     data = r.json()
                 except Exception:
-                    # thử parse text
                     import json as _json
                     data = _json.loads(r.text)
                 rows = _parse_list(data)
@@ -522,7 +436,7 @@ def get_prediction_for(valid, i):
     if key in PREDICTION_CACHE:
         return PREDICTION_CACHE[key]
     hist = [v['result'] for v in valid[:i]][::-1]
-    pred, conf, _ = bootstrap_predict(hist)
+    pred, conf, _ = lc79_predict(hist)
     if pred == "-":
         result = ("-", 50, None)
     else:
@@ -534,9 +448,6 @@ def get_prediction_for(valid, i):
     return result
 
 
-# =====================================================================
-# LOSS STREAK
-# =====================================================================
 def compute_loss_streak(valid, max_scan=25):
     if len(valid) < 3:
         return 0
@@ -562,7 +473,7 @@ HTML_TEMPLATE = """
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>LEMINH</title>
+<title>LEMINH · LC79 MD5</title>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <style>
@@ -580,6 +491,7 @@ HTML_TEMPLATE = """
     body { background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); color: var(--text-main); min-height: 100vh; padding-bottom: 40px; }
     .header { background: rgba(30, 41, 59, 0.85); backdrop-filter: blur(12px); border-bottom: 1px solid var(--border-color); padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 100; }
     .header-title { font-size: 22px; font-weight: 800; color: #38bdf8; display: flex; align-items: center; gap: 10px; text-shadow: 0 0 20px rgba(56, 189, 248, 0.4); }
+    .header-title small { font-size: 10px; color: var(--text-muted); font-weight: 600; letter-spacing: 1px; }
     .header-actions { display: flex; gap: 12px; align-items: center; }
     .time-update { font-size: 12px; color: var(--text-muted); font-weight: 600; }
     .btn-refresh { background: var(--bg-card); color: var(--text-main); border: 1px solid var(--border-color); width: 38px; height: 38px; border-radius: 10px; font-weight: 700; font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: 0.2s; }
@@ -630,7 +542,7 @@ HTML_TEMPLATE = """
 <body>
 
 <div class="header">
-    <div class="header-title">LEMINH</div>
+    <div class="header-title">LEMINH <small>LC79 MD5</small></div>
     <div class="header-actions">
         <div class="time-update" id="time-update">--:--:--</div>
         <button class="btn-refresh" onclick="fetchData()">↻</button>
@@ -819,8 +731,10 @@ def history():
         next_phien = latest_session['phien'] + 1
         history_for_next = [v['result'] for v in valid][::-1]
 
-        base_pred, base_conf, _ = bootstrap_predict(history_for_next)
-        next_pred, next_conf, flipped, reason = apply_recovery(base_pred, base_conf, loss_streak)
+        base_pred, base_conf, meta = lc79_predict(history_for_next)
+        next_pred, next_conf, flipped, reason = apply_recovery(
+            base_pred, base_conf, loss_streak, history_for_next
+        )
 
         out.append({
             'phien': next_phien, 'is_next': True,
@@ -857,6 +771,8 @@ def history():
             'recovery_active': flipped,
             'recovery_reason': reason,
             'base_prediction': base_pred,
+            'algorithm': 'LC79_MD5',
+            'meta': meta,
         })
     except Exception as e:
         traceback.print_exc()
@@ -876,10 +792,13 @@ def predict():
         results = [v['result'] for v in valid][::-1]
 
         loss_streak = compute_loss_streak(valid)
-        base_pred, base_conf, _ = bootstrap_predict(results)
-        pred, conf, flipped, reason = apply_recovery(base_pred, base_conf, loss_streak)
+        base_pred, base_conf, meta = lc79_predict(results)
+        pred, conf, flipped, reason = apply_recovery(
+            base_pred, base_conf, loss_streak, results
+        )
 
         return jsonify({
+            'algorithm': 'LC79_MD5',
             'last_phien': valid[-1]['phien'],
             'next_phien': valid[-1]['phien'] + 1,
             'last_result': valid[-1]['result'],
@@ -893,6 +812,7 @@ def predict():
             'loss_streak': loss_streak,
             'total_sessions': len(valid),
             'last_5': results[:5],
+            'meta': meta,
             'timestamp': datetime.now().isoformat()
         })
     except Exception as e:
@@ -914,8 +834,10 @@ def betvipmd5():
         results = [v['result'] for v in valid][::-1]
 
         loss_streak = compute_loss_streak(valid)
-        base_pred, base_conf, _ = bootstrap_predict(results)
-        pred, conf, flipped, reason = apply_recovery(base_pred, base_conf, loss_streak)
+        base_pred, base_conf, meta = lc79_predict(results)
+        pred, conf, flipped, reason = apply_recovery(
+            base_pred, base_conf, loss_streak, results
+        )
 
         conf_str = f"{conf:.1f}".replace(".", ",") + "%"
 
@@ -931,6 +853,7 @@ def betvipmd5():
 
         return jsonify({
             'id': '@cskhleminh',
+            'algorithm': 'LC79_HU',
             'phien': str(next_phien),
             'ket_qua': ket_qua_str,
             'du_doan': pred,
@@ -939,6 +862,7 @@ def betvipmd5():
             'base_du_doan': base_pred if flipped else None,
             'auto_flip': flipped,
             'chuoi_thua': loss_streak,
+            'meta': meta,
         })
     except Exception as e:
         traceback.print_exc()
@@ -962,6 +886,7 @@ def reset_api():
                     'status': 'success',
                     'reset_to': RESET_ID,
                     'bootstrap': True,
+                    'algorithm': 'LC79_MD5',
                     'message': 'Đã reset - sẵn sàng dự đoán ngay phiên kế tiếp'
                 })
         return jsonify({'status': 'error', 'message': 'Lỗi mạng, không thể xác nhận mốc Reset'}), 400
