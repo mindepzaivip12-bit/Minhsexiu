@@ -1,5 +1,6 @@
 import os
 import math
+import time
 import traceback
 from datetime import datetime
 from collections import defaultdict
@@ -10,13 +11,16 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)
 
-API_URL_MD5 = "https://wtxmd52.macminim6.online/v1/txmd5/lite-sessions?cp=R&cl=R&pf=web&at=bd651d261174ed4a619dfde6c5432fdd"
+API_URL_MD5 = "https://wtx.tele68.com/v1/tx/lite-sessions?cp=R&cl=R&pf=web&at=85e48cf010cfd2ac6b4ee4a16a30a9f0"
 
 HISTORY_CACHE = {}
 PREDICTION_CACHE = {}
-MAX_PREDICTION_CACHE = 2000
+MAX_PREDICTION_CACHE = 3000
 RESET_ID = 0
 BOOTSTRAP_SESSIONS = []
+LAST_FETCH_OK_TS = 0
+FETCH_RETRY = 2
+FETCH_TIMEOUT = 6
 
 
 # =====================================================================
@@ -43,8 +47,23 @@ def get_groups(results):
     return groups
 
 
+def _entropy(seq):
+    if not seq:
+        return 0.0
+    t = seq.count("Tài")
+    x = len(seq) - t
+    p = t / len(seq)
+    q = x / len(seq)
+    e = 0.0
+    if p > 0:
+        e -= p * math.log2(p)
+    if q > 0:
+        e -= q * math.log2(q)
+    return e  # 0..1
+
+
 # =====================================================================
-# HỆ THỐNG CẦU 5 PHIÊN (NỘI BỘ - KHÔNG HIỂN THỊ)
+# HỆ THỐNG CẦU 5 PHIÊN (NỘI BỘ)
 # =====================================================================
 def analyze_5session_pattern(results):
     if len(results) < 5:
@@ -68,23 +87,23 @@ def analyze_5session_pattern(results):
     if alternations >= 4:
         pattern_type = "1-1"
         pred = _opp(seq[0])
-        base_conf = 72
+        base_conf = 74
     elif streak >= 5:
         pattern_type = "Thuan5"
         pred = seq[0]
-        base_conf = 65
+        base_conf = 66
     elif streak == 4:
         pattern_type = "Thuan4"
         pred = seq[0]
-        base_conf = 60
+        base_conf = 61
     elif streak == 3:
         pattern_type = "Thuan3"
         pred = seq[0]
-        base_conf = 56
+        base_conf = 57
     elif alternations == 3:
         pattern_type = "Nghich3"
         pred = _opp(seq[0])
-        base_conf = 58
+        base_conf = 59
     elif alternations == 2:
         groups = []
         i = 0
@@ -99,11 +118,11 @@ def analyze_5session_pattern(results):
         if lens in ([1, 2, 1, 1], [1, 1, 2, 1], [2, 1, 1, 1], [1, 1, 1, 2]):
             pattern_type = "Nghich_zigzag"
             pred = _opp(seq[0])
-            base_conf = 55
+            base_conf = 56
         elif lens in ([2, 2, 1], [1, 2, 2], [2, 1, 2]):
             pattern_type = "Dao_212"
             pred = _opp(seq[0])
-            base_conf = 57
+            base_conf = 58
         else:
             pattern_type = "Honhop"
             pred = seq[0]
@@ -118,7 +137,7 @@ def analyze_5session_pattern(results):
     else:
         base_conf += 1
 
-    conf = int(max(50, min(88, base_conf)))
+    conf = int(max(50, min(90, base_conf)))
 
     return {
         "pattern_type": pattern_type,
@@ -131,7 +150,7 @@ def analyze_5session_pattern(results):
 
 
 # =====================================================================
-# THUẬT TOÁN BỔ TRỢ (CHẠY NGẦM - KHÔNG HIỂN THỊ UI)
+# THUẬT TOÁN BỔ TRỢ (CHẠY NGẦM)
 # =====================================================================
 def algo_markov1_soft(results):
     if len(results) < 15:
@@ -145,9 +164,9 @@ def algo_markov1_soft(results):
         return None
     p = tr[last]["Tài"] / tot
     if p >= 0.68:
-        return ("Tài", 10, "markov1")
+        return ("Tài", 12, "markov1")
     if p <= 0.32:
-        return ("Xỉu", 10, "markov1")
+        return ("Xỉu", 12, "markov1")
     return None
 
 
@@ -163,13 +182,13 @@ def algo_markov2_soft(results):
     if not d:
         return None
     tot = d["Tài"] + d["Xỉu"]
-    if tot < 4:
+    if tot < 5:
         return None
     p = d["Tài"] / tot
-    if p >= 0.72:
-        return ("Tài", 12, "markov2")
-    if p <= 0.28:
-        return ("Xỉu", 12, "markov2")
+    if p >= 0.73:
+        return ("Tài", 14, "markov2")
+    if p <= 0.27:
+        return ("Xỉu", 14, "markov2")
     return None
 
 
@@ -179,9 +198,9 @@ def algo_pressure_balance(results):
     w = results[:15]
     tc = w.count("Tài")
     if tc >= 13:
-        return ("Xỉu", 10, "pressure_tai")
+        return ("Xỉu", 11, "pressure_tai")
     if tc <= 2:
-        return ("Tài", 10, "pressure_xiu")
+        return ("Tài", 11, "pressure_xiu")
     return None
 
 
@@ -194,13 +213,13 @@ def algo_momentum_controlled(results):
             streak += 1
         else:
             break
-    if streak < 3 or streak > 6:
+    if streak < 3 or streak > 7:
         return None
     ratio = results[:10].count(results[0]) / 10
     if ratio >= 0.65:
-        return (results[0], 9, "momentum_hold")
+        return (results[0], 10, "momentum_hold")
     if ratio <= 0.35:
-        return (_opp(results[0]), 9, "momentum_break")
+        return (_opp(results[0]), 10, "momentum_break")
     return None
 
 
@@ -209,7 +228,7 @@ def algo_pattern_3history(results):
         return None
     key = tuple(results[:3])
     tai_next = xiu_next = 0
-    for i in range(min(len(results), 50) - 3):
+    for i in range(min(len(results), 60) - 3):
         if tuple(results[i:i + 3]) == key:
             nxt = results[i + 3]
             if nxt == "Tài":
@@ -220,10 +239,33 @@ def algo_pattern_3history(results):
     if tot < 3:
         return None
     p = tai_next / tot
-    if p >= 0.70:
-        return ("Tài", 11, "pattern3")
-    if p <= 0.30:
-        return ("Xỉu", 11, "pattern3")
+    if p >= 0.72:
+        return ("Tài", 13, "pattern3")
+    if p <= 0.28:
+        return ("Xỉu", 13, "pattern3")
+    return None
+
+
+def algo_pattern_4history(results):
+    if len(results) < 30:
+        return None
+    key = tuple(results[:4])
+    tai_next = xiu_next = 0
+    for i in range(min(len(results), 60) - 4):
+        if tuple(results[i:i + 4]) == key:
+            nxt = results[i + 4]
+            if nxt == "Tài":
+                tai_next += 1
+            else:
+                xiu_next += 1
+    tot = tai_next + xiu_next
+    if tot < 3:
+        return None
+    p = tai_next / tot
+    if p >= 0.75:
+        return ("Tài", 15, "pattern4")
+    if p <= 0.25:
+        return ("Xỉu", 15, "pattern4")
     return None
 
 
@@ -231,79 +273,147 @@ def algo_alternation_long(results):
     if len(results) < 6:
         return None
     alt = 0
-    for i in range(min(len(results) - 1, 12)):
+    for i in range(min(len(results) - 1, 14)):
         if results[i] != results[i + 1]:
             alt += 1
         else:
             break
+    if alt >= 7:
+        return (_opp(results[0]), 16, "alt_7plus")
     if alt >= 6:
-        return (_opp(results[0]), 14, "alt_6plus")
+        return (_opp(results[0]), 14, "alt_6")
     if alt >= 5:
         return (_opp(results[0]), 11, "alt_5")
+    return None
+
+
+def algo_entropy_filter(results):
+    """Bộ lọc nhiễu: entropy thấp (1 chiều) -> bám xu hướng, entropy cao -> giảm tin cậy."""
+    if len(results) < 20:
+        return None
+    e = _entropy(results[:20])
+    if e <= 0.55:
+        # quá 1 chiều -> đảo
+        t = results[:20].count("Tài")
+        return (_opp("Tài" if t > 10 else "Xỉu"), 9, "entropy_skew")
+    if e >= 0.98:
+        # cân bằng tuyệt đối -> theo nhịp gần nhất
+        return (results[0], 8, "entropy_balanced")
+    return None
+
+
+def algo_reversal_pressure(results):
+    """Cầu đảo khi có 3-4 phiên liên tiếp cùng cửa nhưng tổng 12 phiên lệch mạnh."""
+    if len(results) < 12:
+        return None
+    streak = 1
+    for r in results[1:]:
+        if r == results[0]:
+            streak += 1
+        else:
+            break
+    if streak not in (3, 4):
+        return None
+    w = results[:12]
+    tc = w.count("Tài")
+    if tc >= 9 and results[0] == "Tài":
+        return ("Xỉu", 12, "reversal_tai")
+    if tc <= 3 and results[0] == "Xỉu":
+        return ("Tài", 12, "reversal_xiu")
     return None
 
 
 # =====================================================================
 # TỔNG HỢP — CẦU 5 PHIÊN + BỔ TRỢ
 # =====================================================================
-def predict_combined(results):
-    n = len(results)
-    if n == 0:
-        return "Tài", 50
-    if n == 1:
-        return _opp(results[0]), 52
-    if n == 2:
-        if results[0] == results[1]:
-            return _opp(results[0]), 55
-        return results[0], 52
-    if n == 3:
-        if results[0] != results[1] and results[1] != results[2]:
-            return _opp(results[0]), 58
-        if results[0] == results[1] == results[2]:
-            return results[0], 56
-        return results[0], 53
-    if n == 4:
-        alt = sum(1 for i in range(3) if results[i] != results[i + 1])
-        if alt >= 3:
-            return _opp(results[0]), 60
-        if results[0] == results[1] == results[2] == results[3]:
-            return results[0], 56
-        return results[0], 53
-
-    analysis = analyze_5session_pattern(results)
-    base_pred = analysis["prediction"]
-    base_conf = analysis["confidence"]
-
-    if base_conf >= 62:
-        return base_pred, base_conf
-
-    support = []
-    for fn in (algo_markov1_soft, algo_markov2_soft,
-               algo_pressure_balance, algo_momentum_controlled,
-               algo_pattern_3history, algo_alternation_long):
-        s = fn(results)
-        if s:
-            support.append(s)
-
-    if not support:
-        return base_pred, base_conf
-
+def _aggregate_support(support):
     st = sx = 0.0
     for p, w, _ in support:
         if p == "Tài":
             st += w
         else:
             sx += w
+    total = st + sx
+    if total <= 0:
+        return None, 0.0
+    if st > sx:
+        return "Tài", st / total
+    if sx > st:
+        return "Xỉu", sx / total
+    return None, 0.5
 
-    support_pred = "Tài" if st > sx else ("Xỉu" if sx > st else None)
-    support_ratio = max(st, sx) / (st + sx) if (st + sx) > 0 else 0.5
 
-    if support_pred == base_pred and support_ratio >= 0.65:
-        bonus = int((support_ratio - 0.5) * 25)
-        return base_pred, min(80, base_conf + bonus)
+def predict_combined(results):
+    n = len(results)
+    if n == 0:
+        return "Tài", 50
+    if n == 1:
+        return _opp(results[0]), 53
+    if n == 2:
+        if results[0] == results[1]:
+            return _opp(results[0]), 56
+        return results[0], 52
+    if n == 3:
+        if results[0] != results[1] and results[1] != results[2]:
+            return _opp(results[0]), 59
+        if results[0] == results[1] == results[2]:
+            return results[0], 57
+        return results[0], 53
+    if n == 4:
+        alt = sum(1 for i in range(3) if results[i] != results[i + 1])
+        if alt >= 3:
+            return _opp(results[0]), 61
+        if results[0] == results[1] == results[2] == results[3]:
+            return results[0], 57
+        return results[0], 53
 
-    if support_pred != base_pred and support_ratio >= 0.78:
-        return base_pred, max(50, base_conf - 6)
+    analysis = analyze_5session_pattern(results)
+    base_pred = analysis["prediction"]
+    base_conf = analysis["confidence"]
+
+    support = []
+    for fn in (algo_markov1_soft, algo_markov2_soft,
+               algo_pressure_balance, algo_momentum_controlled,
+               algo_pattern_3history, algo_pattern_4history,
+               algo_alternation_long, algo_entropy_filter,
+               algo_reversal_pressure):
+        s = fn(results)
+        if s:
+            support.append(s)
+
+    # Nếu base đã rất chắc -> giữ, chỉ tăng nhẹ nếu đồng thuận
+    if base_conf >= 66:
+        if support:
+            sp, ratio = _aggregate_support(support)
+            if sp == base_pred and ratio >= 0.70:
+                return base_pred, min(88, base_conf + 4)
+            if sp and sp != base_pred and ratio >= 0.85:
+                # tín hiệu bổ trợ phản đối rất mạnh -> giảm nhẹ tin cậy
+                return base_pred, max(50, base_conf - 5)
+        return base_pred, base_conf
+
+    if not support:
+        return base_pred, base_conf
+
+    support_pred, support_ratio = _aggregate_support(support)
+    if support_pred is None:
+        return base_pred, base_conf
+
+    # Đồng thuận mạnh
+    if support_pred == base_pred and support_ratio >= 0.70:
+        bonus = int((support_ratio - 0.5) * 40)
+        # nếu có >=3 tín hiệu đồng thuận -> boost mạnh
+        if len(support) >= 3:
+            bonus += 4
+        return base_pred, min(86, base_conf + bonus)
+
+    # Bổ trợ phản đối cực mạnh -> giảm tin cậy
+    if support_pred != base_pred and support_ratio >= 0.82:
+        return base_pred, max(50, base_conf - 8)
+
+    # Bổ trợ phản đối vừa + base yếu -> chuyển hướng
+    if support_pred != base_pred and base_conf < 58 and support_ratio >= 0.72:
+        return support_pred, min(76, 55 + int((support_ratio - 0.5) * 30))
 
     return base_pred, base_conf
 
@@ -319,37 +429,88 @@ def bootstrap_predict(results):
 def apply_recovery(base_pred, conf, loss_streak):
     if loss_streak < 2:
         return base_pred, conf, False, None
+    # Recovery cần kết hợp cả conf + streak
     if loss_streak >= 5:
-        return _opp(base_pred), min(90, conf + 15), True, "flip_5plus"
+        return _opp(base_pred), min(92, conf + 16), True, "flip_5plus"
     if loss_streak == 4:
-        return _opp(base_pred), min(88, conf + 12), True, "flip_4"
+        return _opp(base_pred), min(90, conf + 13), True, "flip_4"
     if loss_streak == 3:
-        return _opp(base_pred), min(87, conf + 10), True, "flip_3"
-    if conf < 70:
-        return _opp(base_pred), min(86, conf + 6), True, "flip_2"
-    return base_pred, max(50, conf - 12), False, "penalty_2"
+        return _opp(base_pred), min(88, conf + 10), True, "flip_3"
+    if loss_streak == 2:
+        if conf < 70:
+            return _opp(base_pred), min(87, conf + 7), True, "flip_2"
+        return base_pred, max(50, conf - 10), False, "penalty_2"
+    return base_pred, conf, False, None
 
 
 # =====================================================================
-# DATA FETCHER
+# DATA FETCHER (ỔN ĐỊNH, RETRY, FALLBACK)
 # =====================================================================
+def _parse_list(data):
+    rows = []
+    if not isinstance(data, dict):
+        return rows
+    lst = data.get('list') or data.get('data') or data.get('sessions')
+    if not lst or not isinstance(lst, list):
+        return rows
+    for item in lst:
+        try:
+            if not isinstance(item, dict):
+                continue
+            raw = item.get('resultTruyenThong') or item.get('result') or ''
+            res = "Tài" if str(raw).upper() == "TAI" else "Xỉu"
+            dices = item.get('dices') or item.get('dice') or [0, 0, 0]
+            if not isinstance(dices, list) or len(dices) < 3:
+                dices = [0, 0, 0]
+            dice_str = f"{dices[0]} + {dices[1]} + {dices[2]}"
+            total = item.get('point')
+            if total is None:
+                try:
+                    total = int(dices[0]) + int(dices[1]) + int(dices[2])
+                except Exception:
+                    total = 0
+            phien = item.get('id') or item.get('phien')
+            if phien is None:
+                continue
+            rows.append({
+                'phien': int(phien),
+                'result': res,
+                'dice': dice_str,
+                'total': total
+            })
+        except Exception:
+            continue
+    return rows
+
+
 def fetch_sessions():
-    try:
-        headers = {'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json'}
-        r = requests.get(API_URL_MD5, timeout=5, headers=headers)
-        if r.status_code == 200:
-            data = r.json()
-            if 'list' in data and data['list']:
-                rows = []
-                for item in data['list']:
-                    res = "Tài" if item['resultTruyenThong'] == "TAI" else "Xỉu"
-                    dices = item.get('dices', [0, 0, 0])
-                    dice_str = f"{dices[0]} + {dices[1]} + {dices[2]}"
-                    total = item.get('point', sum(dices))
-                    rows.append({'phien': int(item['id']), 'result': res, 'dice': dice_str, 'total': total})
-                return rows, True
-    except Exception as e:
-        print(f"[API ERROR]: {e}")
+    global LAST_FETCH_OK_TS
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'vi,en;q=0.9',
+        'Referer': 'https://wtx.tele68.com/',
+    }
+    last_err = None
+    for attempt in range(FETCH_RETRY):
+        try:
+            r = requests.get(API_URL_MD5, timeout=FETCH_TIMEOUT, headers=headers)
+            if r.status_code == 200:
+                try:
+                    data = r.json()
+                except Exception:
+                    # thử parse text
+                    import json as _json
+                    data = _json.loads(r.text)
+                rows = _parse_list(data)
+                if rows:
+                    LAST_FETCH_OK_TS = time.time()
+                    return rows, True
+            last_err = f"HTTP {r.status_code}"
+        except Exception as e:
+            last_err = str(e)
+            time.sleep(0.4 * (attempt + 1))
+    print(f"[API ERROR]: {last_err}")
     return [], False
 
 
@@ -376,7 +537,7 @@ def get_prediction_for(valid, i):
 # =====================================================================
 # LOSS STREAK
 # =====================================================================
-def compute_loss_streak(valid, max_scan=20):
+def compute_loss_streak(valid, max_scan=25):
     if len(valid) < 3:
         return 0
     streak = 0
@@ -393,7 +554,7 @@ def compute_loss_streak(valid, max_scan=20):
 
 
 # =====================================================================
-# HTML TEMPLATE — CHỈ HIỂN THỊ "LEMINH", ẨN THUẬT TOÁN
+# HTML TEMPLATE
 # =====================================================================
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -630,6 +791,14 @@ def index():
     return render_template_string(HTML_TEMPLATE)
 
 
+def _sync_history(raw_rows):
+    for row in raw_rows:
+        HISTORY_CACHE[row['phien']] = row
+    for k in [k for k in HISTORY_CACHE if k < RESET_ID]:
+        del HISTORY_CACHE[k]
+    return sorted(HISTORY_CACHE.values(), key=lambda x: x['phien'])
+
+
 @app.route('/api/history')
 def history():
     global RESET_ID
@@ -637,11 +806,7 @@ def history():
         raw_rows, success = fetch_sessions()
         if not success and not HISTORY_CACHE:
             return jsonify({'error': 'Không thể kết nối API'}), 500
-        for row in raw_rows:
-            HISTORY_CACHE[row['phien']] = row
-        for k in [k for k in HISTORY_CACHE if k < RESET_ID]:
-            del HISTORY_CACHE[k]
-        valid = sorted(HISTORY_CACHE.values(), key=lambda x: x['phien'])
+        valid = _sync_history(raw_rows)
         if not valid:
             return jsonify({'rows': [], 'stats': {'total': 0, 'correct': 0}})
 
@@ -705,11 +870,7 @@ def predict():
         raw_rows, success = fetch_sessions()
         if not success and not HISTORY_CACHE:
             return jsonify({'error': 'Không thể kết nối API'}), 500
-        for row in raw_rows:
-            HISTORY_CACHE[row['phien']] = row
-        for k in [k for k in HISTORY_CACHE if k < RESET_ID]:
-            del HISTORY_CACHE[k]
-        valid = sorted(HISTORY_CACHE.values(), key=lambda x: x['phien'])
+        valid = _sync_history(raw_rows)
         if not valid:
             return jsonify({'error': 'Chưa có dữ liệu'}), 400
         results = [v['result'] for v in valid][::-1]
@@ -739,18 +900,14 @@ def predict():
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/betvipmd5')
+@app.route('/lc79md5')
 def betvipmd5():
     global RESET_ID
     try:
         raw_rows, success = fetch_sessions()
         if not success and not HISTORY_CACHE:
             return jsonify({'error': 'Không thể kết nối API'}), 500
-        for row in raw_rows:
-            HISTORY_CACHE[row['phien']] = row
-        for k in [k for k in HISTORY_CACHE if k < RESET_ID]:
-            del HISTORY_CACHE[k]
-        valid = sorted(HISTORY_CACHE.values(), key=lambda x: x['phien'])
+        valid = _sync_history(raw_rows)
         if not valid:
             return jsonify({'error': 'Chưa có dữ liệu'}), 400
 
