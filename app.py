@@ -660,7 +660,7 @@ def predict():
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/lc79')
+@app.route('/betvipmd5')
 def lc79():
     global RESET_ID
     try:
@@ -687,7 +687,7 @@ def lc79():
         next_phien = last['phien'] + 1
 
         return jsonify({
-            'Id': 'le minh cau5',
+            'Id': 'le minh ',
             'Phien': str(next_phien),
             'Ket_qua': last['result'].lower(),
             'Lich_su': lich_su,
