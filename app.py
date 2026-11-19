@@ -10,7 +10,6 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)
 
-# ✅ API MỚI
 API_URL_MD5 = "https://wtxmd52.macminim6.online/v1/txmd5/lite-sessions?cp=R&cl=R&pf=web&at=bd651d261174ed4a619dfde6c5432fdd"
 
 HISTORY_CACHE = {}
@@ -19,84 +18,289 @@ MAX_PREDICTION_CACHE = 2000
 RESET_ID = 0
 BOOTSTRAP_SESSIONS = []
 
+
 # =====================================================================
-# PATTERN DATABASE (13 phiên T/X → kết quả kế tiếp)
+# UTILS
 # =====================================================================
-PATTERN_DB = {
-    "TTTTTTTTTTTTT": "Xỉu", "TTTTTTTTTTTTX": "Tài",
-    "TTTTTTTTTTTXT": "Xỉu", "TTTTTTTTTTTXX": "Xỉu",
-    "TTTTTTTTTTXTT": "Tài", "TTXTXTTTTTXTX": "Tài",
-    "TTTTTTTTTTXXT": "Xỉu", "TTTTTTTTTTXXX": "Tài",
-    "TTTTTTTTTXTTT": "Xỉu", "TTTTTTTTTXTTX": "Xỉu",
-    "TTTTTTTTTXTXT": "Xỉu", "TTTTTTTTTXTXX": "Xỉu",
-    "TTTTTTTTTXXTT": "Tài", "TTTTTTTTTXXTX": "Tài",
-    "TTTTTTTTTXXXT": "Xỉu", "TTTTTTTTTXXXX": "Tài",
-    "TTTTTTTTXTTTT": "Tài", "TTTTTTTTXTTTX": "Tài",
-    "TTTTTTTTXTTXT": "Xỉu", "TTTTTTTTXTTXX": "Xỉu",
-    "TTTTTTTTXTXTT": "Tài", "TTTTTTTTXTXTX": "Tài",
-    "TTTTTTTTXTXXT": "Tài", "TTTTTTTTXTXXX": "Tài",
-    "TTTTTTTTXXTTT": "Tài", "TTTTTTTTXXTTX": "Tài",
-    "TTTTTTTTXXTXT": "Xỉu", "TTTTTTTTXXTXX": "Xỉu",
-    "TTTTTTTTXXXTT": "Tài", "TTTTTTTTXXXTX": "Tài",
-    "TTTTTTTTXXXXT": "Xỉu", "TTTTTTTTXXXXX": "Xỉu",
-    "TTTTTTTXTTTTT": "Tài", "TTTTTTTXTTTTX": "Tài",
-    "TTTTTTTXTTTXT": "Xỉu", "TTTTTTTXTTTXX": "Xỉu",
-    "TTTTTTTXTTXTT": "Tài", "TTTTTTTXTTXTX": "Tài",
-    "TTTTTTTXTTXXT": "Tài", "TTTTTTTXTTXXX": "Xỉu",
-    "TTTTTTTXTXTTT": "Xỉu", "TTTTTTTXTXTTX": "Xỉu",
-    "TTTTTTTXTXTXT": "Xỉu", "TTTTTTTXTXTXX": "Xỉu",
-    "TTTTTTTXTXXTT": "Tài", "TTTTTTTXTXXTX": "Tài",
-    "TTTTTTTXTXXXT": "Xỉu", "TTTTTTTXTXXXX": "Tài",
-    "TTTTTTTXXTTTT": "Tài", "TTTTTTTXXTTTX": "Tài",
-    "TTTTTTTXXTTXT": "Xỉu", "TTTTTTTXXTTXX": "Xỉu",
-    "TTTTTTTXXTXTT": "Tài", "TTTTTTTXXTXTX": "Tài",
-    "TTTTTTTXXTXXT": "Tài", "TTTTTTTXXTXXX": "Tài",
-    "TTTTTTTXXXTTT": "Tài", "TTTTTTTXXXTTX": "Tài",
-    "TTTTTTTXXXTXT": "Xỉu", "TTTTTTTXXXTXX": "Xỉu",
-    "TTTTTTTXXXXTT": "Tài", "TTTTTTTXXXXTX": "Tài",
-    "TTTTTTTXXXXXT": "Xỉu", "TTTTTTTXXXXXX": "Xỉu",
-    "TTTTTTXTTTTTT": "Tài", "TTTTTTXTTTTTX": "Tài",
-    "TTTTTTXTTTTXT": "Xỉu", "TTTTTTXTTTTXX": "Xỉu",
-    "TTTTTTXTTTXTT": "Tài", "TTTTTTXTTTXTX": "Tài",
-    "TTTTTTXTTTXXT": "Tài", "TTTTTTXTTTXXX": "Xỉu",
-    "TTTTTTXTTXTTT": "Tài", "TTTTTTXTTXTTX": "Tài",
-    "TTTTTTXTTXTXT": "Xỉu", "TTTTTTXTTXTXX": "Xỉu",
-    "TTTTTTXTTXXTT": "Tài", "TTTTTTXTTXXTX": "Tài",
-    "TTTTTTXTTXXXT": "Xỉu", "TTTTTTXTTXXXX": "Tài",
-    "TTTTTTXTXTTTT": "Tài", "TTTTTTXTXTTTX": "Tài",
-    "TTTTTTXTXTTXT": "Xỉu", "TTTTTTXTXTTXX": "Xỉu",
-    "TTTTTTXTXTXTT": "Tài", "TTTTTTXTXTXTX": "Tài",
-    "TTTTTTXTXTXXT": "Tài", "TTTTTTXTXTXXX": "Tài",
-    "TTTTTTXTXXTTT": "Tài", "TTTTTTXTXXTTX": "Tài",
-    "TTTTTTXTXXTXT": "Xỉu", "TTTTTTXTXXTXX": "Xỉu",
-    "TTTTTTXTXXXTT": "Tài", "TTTTTTXTXXXTX": "Tài",
-    "TTTTTTXTXXXXT": "Xỉu", "TTTTTTXTXXXXX": "Xỉu",
-    "TTTTTTXXTTTTT": "Tài", "TTTTTTXXTTTTX": "Tài",
-    "TTTTTTXXTTTXT": "Xỉu", "TTTTTTXXTTTXX": "Xỉu",
-    "TTTTTTXXTTXTT": "Tài", "TTTTTTXXTTXTX": "Tài",
-    "TTTTTTXXTTXXT": "Tài", "TTTTTTXXTTXXX": "Xỉu",
-    "TTTTTTXXTXTTT": "Xỉu", "TTTTTTXXTXTTX": "Xỉu",
-    "TTTTTTXXTXTXT": "Xỉu", "TTTTTTXXTXTXX": "Xỉu",
-    "TTTTTTXXTXXTT": "Tài", "TTTTTTXXTXXTX": "Tài",
-    "TTTTTTXXTXXXT": "Xỉu", "TTTTTTXXTXXXX": "Tài",
-    "TTTTTTXXXTTTT": "Tài", "TTTTTTXXXTTTX": "Tài",
-    "TTTTTTXXXTTXT": "Xỉu", "TTTTTTXXXTTXX": "Xỉu",
-    "TTTTTTXXXTXTT": "Tài", "TTTTTTXXXTXTX": "Tài",
-    "TTTTTTXXXTXXT": "Tài", "TTTTTTXXXTXXX": "Tài",
-    "TTTTTTXXXXTTT": "Tài", "TTTTTTXXXXTTX": "Tài",
-    "TTTTTTXXXXTXT": "Xỉu", "TTTTTTXXXXTXX": "Xỉu",
-    "TTTTTTXXXXXTT": "Tài", "TTTTTTXXXXXTX": "Tài",
-    "TTTTTTXXXXXXT": "Xỉu", "TTTTTTXXXXXXX": "Xỉu",
-}
+def _opp(v):
+    return "Xỉu" if v == "Tài" else "Tài"
 
 
 def tx_encode(results, length):
-    if len(results) < length: return None
+    if len(results) < length:
+        return None
     return "".join("T" if r == "Tài" else "X" for r in results[:length])
 
 
+def get_groups(results):
+    if not results:
+        return []
+    groups = []
+    current_val = results[0]
+    count = 1
+    for r in results[1:]:
+        if r == current_val:
+            count += 1
+        else:
+            groups.append(count)
+            current_val = r
+            count = 1
+    groups.append(count)
+    return groups
+
+
 # =====================================================================
-# HTML TEMPLATE (giữ nguyên)
+# ✅ HỆ THỐNG CẦU 5 PHIÊN (THAY THẾ TOÀN BỘ THUẬT TOÁN CŨ)
+# =====================================================================
+def analyze_5session_pattern(results):
+    """
+    Phân tích 5 phiên gần nhất → xác định loại cầu:
+    - Đảo:     T-X-T-X-T  (đảo liên tục)
+    - Thuận:   T-T-T-T-T  (bám bệt / thuận chiều)
+    - Nghịch:  X-X-X-X-X  (ngược lại hoàn toàn so với dự đoán thuận)
+    - 1-1:     T-X-T-X-T  (chu kỳ 1-1 xen kẽ)
+    
+    Trả về: dict chứa loại cầu, dự đoán, độ tin cậy, và chi tiết.
+    """
+    if len(results) < 5:
+        return None
+
+    seq = results[:5]  # [mới nhất → cũ nhất]
+    seq_old_to_new = seq[::-1]  # [cũ nhất → mới nhất]
+
+    # Đếm số lần đổi chiều (alternation)
+    alternations = sum(1 for i in range(4) if seq[i] != seq[i + 1])
+    # Đếm streak hiện tại (từ mới nhất)
+    streak = 1
+    for r in seq[1:]:
+        if r == seq[0]:
+            streak += 1
+        else:
+            break
+
+    # Phân loại cầu
+    pattern_type = "unknown"
+    pred = None
+    base_conf = 50
+
+    # --- CẦU ĐẢO / 1-1: T-X-T-X-T hoặc X-T-X-T-X ---
+    if alternations >= 4:
+        pattern_type = "1-1 (Đảo)"
+        pred = _opp(seq[0])
+        base_conf = 72  # 5 phiên đảo liên tục → tin cậy cao
+
+    # --- CẦU THUẬN (bệt): T-T-T-T-T hoặc X-X-X-X-X ---
+    elif streak >= 5:
+        pattern_type = "Thuận (Bệt 5)"
+        pred = seq[0]
+        base_conf = 65  # bệt 5 nhưng có thể sắp bẻ
+
+    elif streak == 4:
+        pattern_type = "Thuận (Bệt 4)"
+        pred = seq[0]
+        base_conf = 60
+
+    elif streak == 3:
+        pattern_type = "Thuận (Bệt 3)"
+        pred = seq[0]
+        base_conf = 56
+
+    # --- CẦU NGHỊCH (đảo chiều so với xu hướng) ---
+    elif alternations == 3:
+        pattern_type = "Nghịch (Đảo 3)"
+        # Nếu 5 phiên: T-X-T-X-T → đảo; nếu T-T-X-T-X → nghịch
+        pred = _opp(seq[0])
+        base_conf = 58
+
+    elif alternations == 2:
+        # Kiểm tra cấu trúc 2-1-2 hoặc 1-2-1-1
+        groups = []
+        i = 0
+        while i < len(seq_old_to_new):
+            j = i
+            while j + 1 < len(seq_old_to_new) and seq_old_to_new[j] == seq_old_to_new[j + 1]:
+                j += 1
+            groups.append((seq_old_to_new[i], j - i + 1))
+            i = j + 1
+
+        lens = [g[1] for g in groups]
+        if lens in ([1, 2, 1, 1], [1, 1, 2, 1], [2, 1, 1, 1], [1, 1, 1, 2]):
+            pattern_type = "Nghịch (Zigzag)"
+            pred = _opp(seq[0])
+            base_conf = 55
+        elif lens in ([2, 2, 1], [1, 2, 2], [2, 1, 2]):
+            pattern_type = "Đảo (2-1-2)"
+            pred = _opp(seq[0])
+            base_conf = 57
+        else:
+            pattern_type = "Hỗn hợp"
+            pred = seq[0]
+            base_conf = 52
+
+    else:
+        pattern_type = "Hỗn hợp"
+        pred = seq[0]
+        base_conf = 52
+
+    # ================================================================
+    # ✅ KHÔNG QUÁ NGHIÊNG VỀ 1 PHIÊN — Cân bằng trọng số
+    # ================================================================
+    # Nếu dự đoán trùng với phiên gần nhất quá nhiều → giảm nhẹ conf
+    # Nếu dự đoán ngược phiên gần nhất → tăng nhẹ conf (vì đã cân bằng)
+    if pred == seq[0]:
+        # Dự đoán thuận → giảm nhẹ để tránh bias
+        base_conf -= 2
+    else:
+        # Dự đoán nghịch → tăng nhẹ (đã cân bằng xu hướng)
+        base_conf += 1
+
+    # Giới hạn conf
+    conf = int(max(50, min(88, base_conf)))
+
+    return {
+        "pattern_type": pattern_type,
+        "prediction": pred,
+        "confidence": conf,
+        "alternations": alternations,
+        "streak": streak,
+        "sequence": "".join("T" if r == "Tài" else "X" for r in seq_old_to_new),
+    }
+
+
+# =====================================================================
+# ✅ PREDICTOR CHÍNH — Dùng cầu 5 phiên + fallback thông minh
+# =====================================================================
+def predict_5session(results):
+    """
+    Dự đoán dựa trên cầu 5 phiên.
+    Fallback khi < 5 phiên: dùng logic đơn giản nhưng cân bằng.
+    """
+    n = len(results)
+
+    if n == 0:
+        return "Tài", 50, "empty"
+
+    if n == 1:
+        return _opp(results[0]), 52, "1_opp"
+
+    if n == 2:
+        if results[0] == results[1]:
+            return _opp(results[0]), 55, "2_opp"
+        return results[0], 52, "2_momentum"
+
+    if n == 3:
+        # 3 phiên: kiểm tra đảo hoặc bệt
+        if results[0] != results[1] and results[1] != results[2]:
+            return _opp(results[0]), 58, "3_alt"
+        if results[0] == results[1] == results[2]:
+            return results[0], 56, "3_streak"
+        return results[0], 53, "3_mixed"
+
+    if n == 4:
+        alt = sum(1 for i in range(3) if results[i] != results[i + 1])
+        if alt >= 3:
+            return _opp(results[0]), 62, "4_alt"
+        if results[0] == results[1] == results[2] == results[3]:
+            return results[0], 58, "4_streak"
+        return results[0], 54, "4_mixed"
+
+    # ✅ Đủ 5 phiên → dùng hệ thống cầu 5 phiên
+    analysis = analyze_5session_pattern(results)
+    if analysis:
+        return analysis["prediction"], analysis["confidence"], analysis["pattern_type"]
+
+    return results[0], 52, "fallback"
+
+
+# =====================================================================
+# ✅ BOOTSTRAP (sau reset)
+# =====================================================================
+def bootstrap_predict(results):
+    pred, conf, detail = predict_5session(results)
+    return pred, conf, detail
+
+
+# =====================================================================
+# ✅ AUTO-RECOVERY (giữ nguyên logic cân bằng)
+# =====================================================================
+def apply_recovery(base_pred, conf, loss_streak):
+    if loss_streak < 2:
+        return base_pred, conf, False, None
+    if loss_streak >= 5:
+        return _opp(base_pred), min(90, conf + 15), True, "flip_5plus"
+    if loss_streak == 4:
+        return _opp(base_pred), min(88, conf + 12), True, "flip_4"
+    if loss_streak == 3:
+        return _opp(base_pred), min(87, conf + 10), True, "flip_3"
+    if conf < 70:
+        return _opp(base_pred), min(86, conf + 6), True, "flip_2"
+    return base_pred, max(50, conf - 12), False, "penalty_2"
+
+
+# =====================================================================
+# DATA FETCHER
+# =====================================================================
+def fetch_sessions():
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json'}
+        r = requests.get(API_URL_MD5, timeout=5, headers=headers)
+        if r.status_code == 200:
+            data = r.json()
+            if 'list' in data and data['list']:
+                rows = []
+                for item in data['list']:
+                    res = "Tài" if item['resultTruyenThong'] == "TAI" else "Xỉu"
+                    dices = item.get('dices', [0, 0, 0])
+                    dice_str = f"{dices[0]} + {dices[1]} + {dices[2]}"
+                    total = item.get('point', sum(dices))
+                    rows.append({'phien': int(item['id']), 'result': res, 'dice': dice_str, 'total': total})
+                return rows, True
+    except Exception as e:
+        print(f"[API ERROR]: {e}")
+    return [], False
+
+
+# =====================================================================
+# PREDICTION CACHE
+# =====================================================================
+def get_prediction_for(valid, i):
+    key = valid[i]['phien']
+    if key in PREDICTION_CACHE:
+        return PREDICTION_CACHE[key]
+    hist = [v['result'] for v in valid[:i]][::-1]
+    pred, conf, _ = bootstrap_predict(hist)
+    if pred == "-":
+        result = ("-", 50, None)
+    else:
+        is_correct = (pred == valid[i]['result'])
+        result = (pred, conf, is_correct)
+    if len(PREDICTION_CACHE) > MAX_PREDICTION_CACHE:
+        PREDICTION_CACHE.clear()
+    PREDICTION_CACHE[key] = result
+    return result
+
+
+# =====================================================================
+# LOSS STREAK
+# =====================================================================
+def compute_loss_streak(valid, max_scan=20):
+    if len(valid) < 3:
+        return 0
+    streak = 0
+    end = len(valid) - 1
+    start = max(0, end - max_scan)
+    for i in range(end, start - 1, -1):
+        pred, conf, is_correct = get_prediction_for(valid, i)
+        if is_correct is None:
+            break
+        if is_correct:
+            break
+        streak += 1
+    return streak
+
+
+# =====================================================================
+# HTML TEMPLATE (giữ nguyên giao diện — chỉ cập nhật tiêu đề)
 # =====================================================================
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -104,7 +308,7 @@ HTML_TEMPLATE = """
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>LE MINH MD5 </title>
+<title>LE MINH MD5 — Cầu 5 Phiên</title>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <style>
@@ -159,6 +363,7 @@ HTML_TEMPLATE = """
     .dice-text { font-size: 11px; color: var(--text-muted); display: block; margin-top: 4px; font-weight: 500; }
     .conf-badge { font-size: 11px; color: #38bdf8; background: rgba(56, 189, 248, 0.1); padding: 2px 8px; border-radius: 10px; margin-top: 4px; display: inline-block; font-weight: 700; }
     .conf-badge.high { color: #34d399; background: rgba(52, 211, 153, 0.15); box-shadow: 0 0 10px rgba(52, 211, 153, 0.2); }
+    .pattern-tag { font-size: 10px; color: #fbbf24; background: rgba(251, 191, 36, 0.15); padding: 2px 8px; border-radius: 8px; margin-top: 4px; display: inline-block; font-weight: 700; }
     .loading { text-align: center; padding: 40px; color: var(--tai-color); font-weight: 600; }
     @media (max-width: 500px) {
         .data-table th, .data-table td { padding: 10px 6px; font-size: 12px; }
@@ -173,7 +378,7 @@ HTML_TEMPLATE = """
 <body>
 
 <div class="header">
-    <div class="header-title">LE MINH <span>MD5 </span></div>
+    <div class="header-title">LE MINH <span>CẦU 5 PHIÊN</span></div>
     <div class="header-actions">
         <div class="time-update" id="time-update">--:--:--</div>
         <button class="btn-refresh" onclick="fetchData()">↻</button>
@@ -258,14 +463,18 @@ function renderTable(rows, stats) {
         if (row.prediction === "Xỉu") predHtml = `<span class="badge badge-xiu">XỈU</span>`;
         let recBadge = "";
         if (row.recovery_flipped) {
-            recBadge = `<span class="recovery-badge" title="Auto-flip do thua ${row.loss_streak || 0} lần">⚡ </span>`;
+            recBadge = `<span class="recovery-badge" title="Auto-flip do thua ${row.loss_streak || 0} lần">⚡</span>`;
         }
         let confHtml = "";
         if (row.conf && row.prediction !== "-") {
             const cls = row.conf >= 70 ? 'conf-badge high' : 'conf-badge';
             confHtml = `<div class="${cls}">${row.conf}%</div>`;
         }
-        let predFull = `<div style="display:flex; flex-direction:column; align-items:center; gap:2px;">${predHtml}${confHtml}${recBadge}</div>`;
+        let patternHtml = "";
+        if (row.pattern_type) {
+            patternHtml = `<div class="pattern-tag">${row.pattern_type}</div>`;
+        }
+        let predFull = `<div style="display:flex; flex-direction:column; align-items:center; gap:2px;">${predHtml}${confHtml}${recBadge}${patternHtml}</div>`;
         let resultHtml = `<span class="badge badge-empty">-</span>`;
         if (row.result === "Tài") resultHtml = `<span class="badge badge-tai">TÀI</span>`;
         if (row.result === "Xỉu") resultHtml = `<span class="badge badge-xiu">XỈU</span>`;
@@ -327,697 +536,6 @@ setInterval(fetchData, 5000);
 
 
 # =====================================================================
-# DATA FETCHER
-# =====================================================================
-def fetch_sessions():
-    try:
-        headers = {'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json'}
-        r = requests.get(API_URL_MD5, timeout=5, headers=headers)
-        if r.status_code == 200:
-            data = r.json()
-            if 'list' in data and data['list']:
-                rows = []
-                for item in data['list']:
-                    res = "Tài" if item['resultTruyenThong'] == "TAI" else "Xỉu"
-                    dices = item.get('dices', [0, 0, 0])
-                    dice_str = f"{dices[0]} + {dices[1]} + {dices[2]}"
-                    total = item.get('point', sum(dices))
-                    rows.append({'phien': int(item['id']), 'result': res, 'dice': dice_str, 'total': total})
-                return rows, True
-    except Exception as e:
-        print(f"[API ERROR]: {e}")
-    return [], False
-
-
-# =====================================================================
-# UTILS
-# =====================================================================
-def get_groups(results):
-    if not results: return []
-    groups = []
-    current_val = results[0]
-    count = 1
-    for r in results[1:]:
-        if r == current_val:
-            count += 1
-        else:
-            groups.append(count)
-            current_val = r
-            count = 1
-    groups.append(count)
-    return groups
-
-
-def _opp(v):
-    return "Xỉu" if v == "Tài" else "Tài"
-
-
-def _count_alternations(results, max_len=15):
-    count = 0
-    for i in range(min(len(results) - 1, max_len)):
-        if results[i] != results[i+1]:
-            count += 1
-        else:
-            break
-    return count
-
-
-def _count_streak(results):
-    if not results: return 0
-    r0 = results[0]; c = 1
-    for r in results[1:]:
-        if r == r0: c += 1
-        else: break
-    return c
-
-
-def _regime(results):
-    if len(results) < 5: return "balanced"
-    alt = _count_alternations(results, 12)
-    streak = _count_streak(results)
-    if alt >= 4 and alt > streak: return "alternation"
-    if streak >= 3: return "streak"
-    return "balanced"
-
-
-def _entropy_bits(arr):
-    if not arr: return 0.0
-    p = arr.count("Tài") / len(arr)
-    if p in (0, 1): return 0.0
-    return -(p * math.log2(p) + (1-p) * math.log2(1-p))
-
-
-def _detect_pattern_321(results):
-    """
-    ✅ Phát hiện cầu 3-2-1 hoặc 1-2-3 (cầu bậc thang).
-    Trả về: (pattern_name, next_pred, weight) hoặc None.
-    VD: 3 Tài → 2 Xỉu → 1 Tài → dự đoán tiếp theo theo pattern
-    """
-    if len(results) < 8: return None
-    # Đảo ngược để dễ đọc xuôi thời gian (cũ → mới)
-    seq = results[:10][::-1]
-    groups = []
-    i = 0
-    while i < len(seq):
-        j = i
-        while j + 1 < len(seq) and seq[j] == seq[j+1]:
-            j += 1
-        groups.append((seq[i], j - i + 1))
-        i = j + 1
-
-    if len(groups) < 3: return None
-    last3 = groups[-3:]
-    lens = [g[1] for g in last3]
-    vals = [g[0] for g in last3]
-
-    # Cầu 3-2-1 tăng dần: 1-2-3 → tiếp theo có thể bẻ (về 1)
-    if lens == [1, 2, 3]:
-        return ("pattern_123", vals[2], 14)  # bám tiếp vì đang mở rộng
-    # Cầu 3-2-1 giảm dần: 3-2-1 → tiếp theo có thể bám 1 hoặc mở 2
-    if lens == [3, 2, 1]:
-        return ("pattern_321", _opp(vals[2]), 13)  # hay bẻ sau 1
-    # Cầu 2-2-2 đều
-    if lens == [2, 2, 2]:
-        return ("pattern_222", _opp(vals[2]), 11)
-    # Cầu 1-1-1 (alternation)
-    if lens == [1, 1, 1]:
-        return ("pattern_111", _opp(vals[2]), 12)
-    # Cầu 2-1-2 hoặc 1-2-1 (zigzag)
-    if lens in ([2, 1, 2], [1, 2, 1]):
-        return ("pattern_zigzag", _opp(vals[2]), 10)
-    # Cầu 3-3-3 hoặc 4-4-4 (bệt đều)
-    if lens[0] == lens[1] == lens[2] and lens[0] >= 3:
-        return ("pattern_uniform", _opp(vals[2]), 12)
-
-    return None
-
-
-def _detect_12_pattern(results):
-    """
-    ✅ Cầu 1-2 (một đơn một đôi): T-X-X-T-T-X-X...
-    """
-    if len(results) < 9: return None
-    seq = results[:9][::-1]
-    groups = []
-    i = 0
-    while i < len(seq):
-        j = i
-        while j + 1 < len(seq) and seq[j] == seq[j+1]:
-            j += 1
-        groups.append((seq[i], j - i + 1))
-        i = j + 1
-
-    if len(groups) < 4: return None
-    last4 = [g[1] for g in groups[-4:]]
-    if last4 == [1, 2, 1, 2] or last4 == [2, 1, 2, 1]:
-        # Theo pattern thì tiếp theo là 1 hoặc 2 → dự đoán theo chu kỳ
-        if last4 == [1, 2, 1, 2]:
-            return ("pattern_1212", groups[-1][0], 11)  # chu kỳ 2 → bám
-        else:
-            return ("pattern_2121", _opp(groups[-1][0]), 11)
-    return None
-
-
-# =====================================================================
-# PATTERN LOOKUP 13 PHIÊN
-# =====================================================================
-def algo_pattern_lookup(results):
-    key = tx_encode(results, 13)
-    if key and key in PATTERN_DB:
-        return (PATTERN_DB[key], 30, "pattern_db")
-    return None
-
-
-# =====================================================================
-# ✅ 11+ THUẬT TOÁN ĐẦY ĐỦ CÁC LOẠI CẦU
-# =====================================================================
-
-# --- 1. BẮT BỆT (streak follow) - ưu tiên số 1 ---
-def algo_streak_follow(results, groups):
-    """
-    ✅ BÁM BỆT: streak 2-9 bám tiếp, chỉ chuyển tiếp khi quá dài.
-    """
-    if not groups or len(results) < 3: return []
-    sigs = []
-    r0 = results[0]; g0 = groups[0]
-
-    streak_weights = {
-        2: 15, 3: 18, 4: 20, 5: 20,
-        6: 17, 7: 13, 8: 9, 9: 6,
-    }
-    if g0 in streak_weights:
-        sigs.append((r0, streak_weights[g0], f"streak_follow_{g0}"))
-    return sigs
-
-
-# --- 2. BẺ BỆT THEO THỐNG KÊ (chỉ bẻ khi vượt max lịch sử) ---
-def algo_streak_break_stat(results):
-    n = len(results)
-    if n < 25: return None
-    streak = _count_streak(results)
-    if streak < 6: return None
-
-    current = results[0]
-    same_streaks = []
-    i = 0
-    while i < len(results[:60]):
-        j = i
-        while j + 1 < len(results[:60]) and results[j] == results[j+1]:
-            j += 1
-        length = j - i + 1
-        if results[i] == current and length >= 2:
-            same_streaks.append(length)
-        i = j + 1
-
-    if not same_streaks: return None
-    max_len = max(same_streaks)
-    avg_len = sum(same_streaks) / len(same_streaks)
-
-    if streak > max_len:
-        return (_opp(current), 24, "streak_break_beyond_max")
-    if streak == max_len and streak >= 8:
-        return (_opp(current), 17, "streak_break_at_max")
-    if streak <= avg_len * 1.3:
-        return (current, 14, "streak_hold_below_avg")
-    return None
-
-
-# --- 3. BÁM BỆT MOMENTUM ---
-def algo_streak_momentum(results):
-    n = len(results)
-    if n < 10: return None
-    streak = _count_streak(results)
-    if streak < 3 or streak > 8: return None
-
-    current = results[0]
-    recent = results[:10]
-    ratio = recent.count(current) / len(recent)
-    if ratio >= 0.6:
-        return (current, 13, "streak_momentum_strong")
-    if ratio >= 0.5:
-        return (current, 9, "streak_momentum_mild")
-    return None
-
-
-# --- 4. CẦU 3-2-1 & BẬC THANG ---
-def algo_pattern_321(results):
-    p = _detect_pattern_321(results)
-    if p:
-        name, pred, weight = p
-        return (pred, weight, name)
-    return None
-
-
-# --- 5. CẦU 1-2 (đơn-đôi) ---
-def algo_pattern_12(results):
-    p = _detect_12_pattern(results)
-    if p:
-        name, pred, weight = p
-        return (pred, weight, name)
-    return None
-
-
-# --- 6. ALTERNATION (1-1) ---
-def algo_alternation(results):
-    if len(results) < 4: return None
-    alt = _count_alternations(results)
-    if   alt >= 8: return (_opp(results[0]), 26, "alt_8plus")
-    elif alt >= 6: return (_opp(results[0]), 22, "alt_6_7")
-    elif alt >= 4: return (_opp(results[0]), 16, "alt_4_5")
-    elif alt >= 3: return (_opp(results[0]), 11, "alt_3")
-    return None
-
-
-# --- 7. MARKOV 1 ---
-def algo_markov1(results):
-    if len(results) < 15: return None
-    tr = {"Tài": {"Tài": 0, "Xỉu": 0}, "Xỉu": {"Tài": 0, "Xỉu": 0}}
-    for i in range(len(results[:45]) - 1):
-        tr[results[i+1]][results[i]] += 1
-    last = results[0]; tot = sum(tr[last].values())
-    if tot < 5: return None
-    p = tr[last]["Tài"] / tot
-    if   p >= 0.65: return ("Tài", 11, "markov1")
-    elif p <= 0.35: return ("Xỉu", 11, "markov1")
-    return None
-
-
-# --- 8. MARKOV 2 ---
-def algo_markov2(results):
-    if len(results) < 20: return None
-    key = (results[1], results[0])
-    tr = defaultdict(lambda: {"Tài": 0, "Xỉu": 0})
-    for i in range(len(results[:60]) - 2):
-        k = (results[i+2], results[i+1])
-        tr[k][results[i]] += 1
-    d = tr.get(key)
-    if not d: return None
-    tot = d["Tài"] + d["Xỉu"]
-    if tot < 4: return None
-    p = d["Tài"] / tot
-    if   p >= 0.70: return ("Tài", 13, "markov2")
-    elif p <= 0.30: return ("Xỉu", 13, "markov2")
-    return None
-
-
-# --- 9. PATTERN 3 PHIÊN (tìm lịch sử khớp) ---
-def algo_consecutive_pattern(results):
-    if len(results) < 25: return None
-    key = tuple(results[:3])
-    tai_next = xiu_next = 0
-    for i in range(len(results[:60]) - 3):
-        if tuple(results[i:i+3]) == key:
-            nxt = results[i+3]
-            if nxt == "Tài": tai_next += 1
-            else: xiu_next += 1
-    tot = tai_next + xiu_next
-    if tot < 3: return None
-    p = tai_next / tot
-    if   p >= 0.68: return ("Tài", 12, "pattern3")
-    elif p <= 0.32: return ("Xỉu", 12, "pattern3")
-    return None
-
-
-# --- 10. ÁP LỰC CÂN BẰNG (pressure pullback) ---
-def algo_pressure_pullback(results):
-    n = len(results)
-    if n < 18: return None
-    w = results[:18]
-    tc = w.count("Tài")
-    if tc >= 15: return ("Xỉu", 13, "pressure_tai")
-    if tc <= 3:  return ("Tài", 13, "pressure_xiu")
-    return None
-
-
-# --- 11. MEAN REVERSION (đảo chiều dài hạn) ---
-def algo_mean_reversion(results):
-    n = len(results)
-    if n < 30: return None
-    w = results[:30]
-    tc = w.count("Tài")
-    if tc >= 22: return ("Xỉu", 12, "reversion_tai")
-    if tc <= 8:  return ("Tài", 12, "reversion_xiu")
-    return None
-
-
-# --- 12. VOLATILITY BREAK ---
-def algo_volatility_break(results):
-    n = len(results)
-    if n < 12: return None
-    window = results[:12]
-    changes = sum(1 for i in range(len(window)-1) if window[i] != window[i+1])
-    rate = changes / (len(window) - 1)
-    if rate >= 0.85:
-        return (results[1], 10, "vol_high_break")
-    if rate <= 0.15:
-        return (results[0], 11, "vol_low_continue")
-    return None
-
-
-# --- 13. MULTI-WINDOW ---
-def algo_multi_window(results):
-    n = len(results)
-    if n < 15: return None
-    w5 = results[:5].count("Tài"); w10 = results[:10].count("Tài"); w15 = results[:15].count("Tài")
-    vt = sum([w5 >= 4, w10 >= 7, w15 >= 10]); vx = sum([w5 <= 1, w10 <= 3, w15 <= 5])
-    if   vt >= 2: return ("Tài", 12, "multi_window")
-    elif vx >= 2: return ("Xỉu", 12, "multi_window")
-    return None
-
-
-# --- 14. HOT TILT ---
-def algo_hot_tilt(results):
-    n = len(results)
-    if n < 12: return None
-    for w, hi, lo in ((8, 7, 1), (12, 10, 2)):
-        if n < w: continue
-        tc = results[:w].count("Tài")
-        if tc >= hi: return ("Xỉu", 14 if w == 8 else 12, f"hot_tai_{w}")
-        elif tc <= lo: return ("Tài", 14 if w == 8 else 12, f"hot_xiu_{w}")
-    return None
-
-
-# --- 15. ENTROPY ---
-def algo_entropy(results):
-    if len(results) < 20: return None
-    window = results[:20]
-    p_tai = window.count("Tài") / 20
-    if p_tai in (0, 1): return ("Tài" if p_tai > 0.5 else "Xỉu", 9, "entropy_zero")
-    entropy = _entropy_bits(window)
-    if entropy < 0.6: return ("Tài" if p_tai > 0.5 else "Xỉu", 10, "entropy_low")
-    return None
-
-
-# --- 16. SIMPLE ENHANCED ---
-def algo_simple_enhanced(results):
-    if len(results) < 3: return None
-    r0 = results[0]; streak = 1
-    for r in results[1:]:
-        if r == r0: streak += 1
-        else: break
-    if streak == 1:
-        if len(results) >= 3 and results[1] == results[2]:
-            return (_opp(r0), 8, "simple_break_pair")
-        return (r0, 8, "simple_continue")
-    if streak == 2: return (r0, 10, "simple_momentum")
-    if streak == 3: return (r0, 11, "simple_hold_3")
-    if streak >= 4: return (r0, 9, "simple_hold_4plus")
-    return None
-
-
-# --- 17. RUNLENGTH COMPARE ---
-def algo_runlength_compare(results):
-    n = len(results)
-    if n < 20: return None
-    groups = get_groups(results)
-    if len(groups) < 4: return None
-    cur = groups[0]; past = groups[1:min(20, len(groups))]
-    if not past: return None
-    avg = sum(past) / len(past)
-    if cur > avg * 1.8 and cur >= 5: return (_opp(results[0]), 11, "rl_break")
-    if cur < avg * 0.8 and avg >= 2.5: return (results[0], 8, "rl_continue")
-    return None
-
-
-# --- 18. WEIGHTED TREND ---
-def algo_weighted_trend(results):
-    n = len(results)
-    if n < 10: return None
-    weights = [10.0, 8.0, 6.0, 4.0, 3.0, 2.0, 1.5, 1.0, 0.8, 0.5]
-    tw = sw = 0.0
-    for i, r in enumerate(results[:10]):
-        w = weights[i]
-        tw += w
-        if r == "Tài": sw += w
-    if tw == 0: return None
-    ratio = sw / tw
-    if ratio >= 0.72: return ("Tài", 11, "wt_trend_tai")
-    if ratio <= 0.28: return ("Xỉu", 11, "wt_trend_xiu")
-    return None
-
-
-# --- 19. RECENCY MOMENTUM ---
-def algo_recency_momentum(results):
-    n = len(results)
-    if n < 8: return None
-    st = sx = 0
-    for i in range(min(n, 20)):
-        w = 20 - i
-        if results[i] == "Tài": st += w
-        else: sx += w
-    total = st + sx
-    if total == 0: return None
-    if max(st, sx) / total < 0.68: return None
-    return ("Tài", 10, "recency_tai") if st > sx else ("Xỉu", 10, "recency_xiu")
-
-
-# --- 20. TILT RATIO ---
-def algo_tilt_ratio(results):
-    n = len(results)
-    if n < 15: return None
-    for window in (15, 20, 30):
-        if n < window: continue
-        tr = results[:window].count("Tài") / window
-        if   tr >= 0.73: return ("Xỉu", 11, f"tilt_tai_{window}")
-        elif tr <= 0.27: return ("Tài", 11, f"tilt_xiu_{window}")
-    return None
-
-
-# --- 21. STREAK PROBABILITY ---
-def algo_streak_probability(results):
-    n = len(results)
-    if n < 25: return None
-    streak = _count_streak(results)
-    if streak < 3: return None
-    current = results[0]
-    breaks = totals = 0
-    i = 0
-    while i < len(results) - streak - 1:
-        j = i
-        cnt = 1
-        while j + 1 < len(results) and results[j] == results[j+1]:
-            cnt += 1; j += 1
-        if cnt >= streak and results[i] == current:
-            totals += 1
-            if j + 1 < len(results) and results[j+1] != current:
-                breaks += 1
-        i = j + 1
-    if totals < 3: return None
-    p_break = breaks / totals
-    if p_break >= 0.6: return (_opp(current), 12, "streak_break_prob")
-    if p_break <= 0.4: return (current, 11, "streak_cont_prob")
-    return None
-
-
-# =====================================================================
-# MASTER ANALYZER — 21+ SIGNALS
-# =====================================================================
-def analyze_full_bridge(results):
-    if len(results) < 3: return []
-    signals = []
-    groups = get_groups(results)
-
-    # Pattern DB (nếu có)
-    pdb = algo_pattern_lookup(results)
-    if pdb: signals.append(pdb)
-
-    # Bắt bệt (ưu tiên)
-    signals.extend(algo_streak_follow(results, groups))
-
-    # Chạy tất cả thuật toán
-    for fn in (algo_streak_break_stat, algo_streak_momentum,
-               algo_pattern_321, algo_pattern_12,
-               algo_alternation, algo_markov1, algo_markov2,
-               algo_consecutive_pattern, algo_pressure_pullback,
-               algo_mean_reversion, algo_volatility_break,
-               algo_multi_window, algo_hot_tilt, algo_entropy,
-               algo_simple_enhanced, algo_runlength_compare,
-               algo_weighted_trend, algo_recency_momentum,
-               algo_tilt_ratio, algo_streak_probability):
-        s = fn(results)
-        if s: signals.append(s)
-
-    return signals
-
-
-# =====================================================================
-# BASE PREDICTOR
-# =====================================================================
-def full_bridge_predict(results):
-    if not results: return "Tài", 50
-    if len(results) == 1: return _opp(results[0]), 52
-    if len(results) == 2:
-        if results[0] == results[1]: return _opp(results[0]), 55
-        return results[1], 52
-    signals = analyze_full_bridge(results)
-    if not signals: return results[0], 52
-    st = sx = 0.0
-    for p, w, name in signals:
-        if p == "Tài": st += w
-        else: sx += w
-    total = st + sx
-    if total == 0: return results[0], 50
-    ratio = max(st, sx) / total
-    evidence = min(1.0, total / 40.0)
-    conf = int(max(50, min(92, 50 + ((ratio - 0.5) * 100) * evidence)))
-    if st > sx: return "Tài", conf
-    if sx > st: return "Xỉu", conf
-    return _opp(results[0]), 50
-
-
-# =====================================================================
-# ✅ BOOTSTRAP — Dự đoán ngay sau reset
-# =====================================================================
-def bootstrap_predict(results):
-    n = len(results)
-    if n == 0:
-        return "Tài", 50, "bootstrap_empty"
-    if n == 1:
-        return _opp(results[0]), 55, "bootstrap_1_opp"
-    if n == 2:
-        if results[0] == results[1]:
-            return _opp(results[0]), 58, "bootstrap_2_opp"
-        return results[0], 54, "bootstrap_2_momentum"
-    pred, conf, detail = full_bridge_predict_adaptive(results)
-    return pred, conf, detail
-
-
-# =====================================================================
-# ADAPTIVE PREDICTOR
-# =====================================================================
-def full_bridge_predict_adaptive(results, replay_n=100):
-    n = len(results)
-    if n == 0: return "Tài", 50, []
-    if n == 1: return _opp(results[0]), 55, []
-    if n == 2:
-        if results[0] == results[1]: return _opp(results[0]), 58, []
-        return results[0], 54, []
-
-    signal_stats = defaultdict(lambda: {'wins': 0.0, 'total': 0.0})
-    replay_count = min(replay_n, n - 3)
-    for j in range(replay_count):
-        history = results[j + 1:]; actual = results[j]
-        decay = math.exp(-j / max(replay_count / 2.0, 1.0))
-        for pred_sig, weight, name in analyze_full_bridge(history):
-            signal_stats[name]['total'] += decay
-            if pred_sig == actual:
-                signal_stats[name]['wins'] += decay
-
-    signals = analyze_full_bridge(results)
-    if not signals:
-        return results[0], 52, []
-
-    regime = _regime(results)
-
-    st = sx = 0.0; detail = []
-    has_pattern_hit = False
-    for pred_sig, weight, name in signals:
-        if name == "pattern_db": has_pattern_hit = True
-        s = signal_stats[name]
-        if s['total'] >= 3:
-            alpha = 2.0
-            acc = (s['wins'] + alpha * 0.5) / (s['total'] + alpha)
-            samples = int(s['total'])
-        else:
-            acc, samples = 0.5, int(s['total'])
-
-        accuracy_mult = 0.4 + max(0.0, min(1.9, (acc - 0.3) * 3.0))
-
-        if regime == "streak":
-            if "streak_follow" in name or "hold" in name or "momentum" in name:
-                accuracy_mult *= 1.15
-        elif regime == "alternation":
-            if "alt_" in name or "pattern" in name or "vol_" in name:
-                accuracy_mult *= 1.12
-
-        adjusted = weight * accuracy_mult
-        if pred_sig == "Tài": st += adjusted
-        else: sx += adjusted
-        detail.append({'name': name, 'pred': pred_sig, 'base_weight': weight,
-                       'accuracy': round(acc, 3), 'samples': samples,
-                       'adjusted_weight': round(adjusted, 2)})
-
-    total = st + sx
-    if total == 0:
-        return results[0], 50, detail
-    if st > sx: pred, ratio = "Tài", st / total
-    elif sx > st: pred, ratio = "Xỉu", sx / total
-    else: return _opp(results[0]), 50, detail
-
-    base_conf = 50 + (ratio - 0.5) * 100
-    evidence = min(1.0, total / 50.0)
-    conf = 50 + (base_conf - 50) * evidence
-
-    if ratio >= 0.72: conf += 6
-    if ratio >= 0.80 and len(signals) >= 5: conf += 6
-    if len(signals) >= 8 and ratio >= 0.65: conf += 3
-    if len(signals) >= 10 and ratio >= 0.60: conf += 2
-    if len(signals) < 4: conf -= 5
-
-    if has_pattern_hit:
-        pdb_pred = algo_pattern_lookup(results)[0]
-        if pdb_pred == pred:
-            conf += 8
-        else:
-            conf -= 5
-
-    return pred, int(max(50, min(95, conf))), detail
-
-
-# =====================================================================
-# PREDICTION CACHE
-# =====================================================================
-def get_prediction_for(valid, i):
-    key = valid[i]['phien']
-    if key in PREDICTION_CACHE:
-        return PREDICTION_CACHE[key]
-    hist = [v['result'] for v in valid[:i]][::-1]
-    pred, conf, _ = bootstrap_predict(hist)
-    if pred == "-":
-        result = ("-", 50, None)
-    else:
-        is_correct = (pred == valid[i]['result'])
-        result = (pred, conf, is_correct)
-    if len(PREDICTION_CACHE) > MAX_PREDICTION_CACHE:
-        PREDICTION_CACHE.clear()
-    PREDICTION_CACHE[key] = result
-    return result
-
-
-# =====================================================================
-# LOSS STREAK
-# =====================================================================
-def compute_loss_streak(valid, max_scan=20):
-    if len(valid) < 3: return 0
-    streak = 0
-    end = len(valid) - 1
-    start = max(0, end - max_scan)
-    for i in range(end, start - 1, -1):
-        pred, conf, is_correct = get_prediction_for(valid, i)
-        if is_correct is None: break
-        if is_correct: break
-        streak += 1
-    return streak
-
-
-# =====================================================================
-# AUTO-RECOVERY
-# =====================================================================
-def apply_recovery(base_pred, conf, loss_streak):
-    if loss_streak < 2:
-        return base_pred, conf, False, None
-    if loss_streak >= 5:
-        return _opp(base_pred), min(96, conf + 15), True, "flip_5plus"
-    if loss_streak == 4:
-        return _opp(base_pred), min(95, conf + 12), True, "flip_4"
-    if loss_streak == 3:
-        return _opp(base_pred), min(94, conf + 10), True, "flip_3"
-    if conf < 75:
-        return _opp(base_pred), min(93, conf + 6), True, "flip_2"
-    return base_pred, max(50, conf - 12), False, "penalty_2"
-
-
-# =====================================================================
 # ROUTES
 # =====================================================================
 @app.route('/')
@@ -1032,21 +550,24 @@ def history():
         raw_rows, success = fetch_sessions()
         if not success and not HISTORY_CACHE:
             return jsonify({'error': 'Không thể kết nối API'}), 500
-        for row in raw_rows: HISTORY_CACHE[row['phien']] = row
-        for k in [k for k in HISTORY_CACHE if k < RESET_ID]: del HISTORY_CACHE[k]
+        for row in raw_rows:
+            HISTORY_CACHE[row['phien']] = row
+        for k in [k for k in HISTORY_CACHE if k < RESET_ID]:
+            del HISTORY_CACHE[k]
         valid = sorted(HISTORY_CACHE.values(), key=lambda x: x['phien'])
         if not valid:
             return jsonify({'rows': [], 'stats': {'total': 0, 'correct': 0}})
 
         loss_streak = compute_loss_streak(valid)
 
-        out = []; correct_count = 0; total_past = 0
+        out = []
+        correct_count = 0
+        total_past = 0
         latest_session = valid[-1]
         next_phien = latest_session['phien'] + 1
         history_for_next = [v['result'] for v in valid][::-1]
 
-        base_pred, base_conf, _ = bootstrap_predict(history_for_next)
-        if not isinstance(_, list): pass
+        base_pred, base_conf, pattern_type = bootstrap_predict(history_for_next)
         next_pred, next_conf, flipped, reason = apply_recovery(base_pred, base_conf, loss_streak)
 
         out.append({
@@ -1054,6 +575,7 @@ def history():
             'prediction': next_pred, 'result': 'Chờ...',
             'dice': "? + ? + ?", 'is_correct': None,
             'conf': next_conf,
+            'pattern_type': pattern_type,
             'recovery_flipped': flipped,
             'recovery_reason': reason,
             'loss_streak': loss_streak,
@@ -1062,15 +584,21 @@ def history():
 
         scan_limit = min(len(valid), 200)
         for i in range(len(valid) - 1, len(valid) - scan_limit - 1, -1):
-            if i < 0: break
+            if i < 0:
+                break
             current_session = valid[i]
             pred, conf, is_correct = get_prediction_for(valid, i)
-            if is_correct is not None: total_past += 1
-            if is_correct: correct_count += 1
-            out.append({'phien': current_session['phien'], 'is_next': False,
-                        'prediction': pred, 'result': current_session['result'],
-                        'dice': current_session['dice'], 'is_correct': is_correct,
-                        'conf': conf, 'recovery_flipped': False})
+            if is_correct is not None:
+                total_past += 1
+            if is_correct:
+                correct_count += 1
+            out.append({
+                'phien': current_session['phien'], 'is_next': False,
+                'prediction': pred, 'result': current_session['result'],
+                'dice': current_session['dice'], 'is_correct': is_correct,
+                'conf': conf, 'recovery_flipped': False,
+                'pattern_type': None,
+            })
 
         return jsonify({
             'rows': out,
@@ -1092,34 +620,39 @@ def predict():
         raw_rows, success = fetch_sessions()
         if not success and not HISTORY_CACHE:
             return jsonify({'error': 'Không thể kết nối API'}), 500
-        for row in raw_rows: HISTORY_CACHE[row['phien']] = row
-        for k in [k for k in HISTORY_CACHE if k < RESET_ID]: del HISTORY_CACHE[k]
+        for row in raw_rows:
+            HISTORY_CACHE[row['phien']] = row
+        for k in [k for k in HISTORY_CACHE if k < RESET_ID]:
+            del HISTORY_CACHE[k]
         valid = sorted(HISTORY_CACHE.values(), key=lambda x: x['phien'])
-        if not valid: return jsonify({'error': 'Chưa có dữ liệu'}), 400
+        if not valid:
+            return jsonify({'error': 'Chưa có dữ liệu'}), 400
         results = [v['result'] for v in valid][::-1]
 
         loss_streak = compute_loss_streak(valid)
-        base_pred, base_conf, detail = bootstrap_predict(results)
-        if not isinstance(detail, list): detail = []
+        base_pred, base_conf, pattern_type = bootstrap_predict(results)
         pred, conf, flipped, reason = apply_recovery(base_pred, base_conf, loss_streak)
 
-        pattern_hit = algo_pattern_lookup(results)
-        pattern_key = tx_encode(results, 13)
+        analysis = analyze_5session_pattern(results) if len(results) >= 5 else None
 
         return jsonify({
-            'last_phien': valid[-1]['phien'], 'next_phien': valid[-1]['phien'] + 1,
-            'last_result': valid[-1]['result'], 'last_dice': valid[-1]['dice'],
-            'prediction': pred, 'confidence': conf,
-            'base_prediction': base_pred, 'base_confidence': base_conf,
-            'recovery_flipped': flipped, 'recovery_reason': reason,
+            'last_phien': valid[-1]['phien'],
+            'next_phien': valid[-1]['phien'] + 1,
+            'last_result': valid[-1]['result'],
+            'last_dice': valid[-1]['dice'],
+            'prediction': pred,
+            'confidence': conf,
+            'base_prediction': base_pred,
+            'base_confidence': base_conf,
+            'pattern_type': pattern_type,
+            'pattern_sequence': analysis['sequence'] if analysis else None,
+            'pattern_alternations': analysis['alternations'] if analysis else None,
+            'pattern_streak': analysis['streak'] if analysis else None,
+            'recovery_flipped': flipped,
+            'recovery_reason': reason,
             'loss_streak': loss_streak,
             'total_sessions': len(valid),
-            'pattern_key': pattern_key,
-            'pattern_hit': pattern_hit[0] if pattern_hit else None,
-            'signals': detail,
-            'tai_score': round(sum(s['adjusted_weight'] for s in detail if s['pred'] == 'Tài'), 2),
-            'xiu_score': round(sum(s['adjusted_weight'] for s in detail if s['pred'] == 'Xỉu'), 2),
-            'signal_count': len(detail),
+            'last_5': results[:5],
             'timestamp': datetime.now().isoformat()
         })
     except Exception as e:
@@ -1134,36 +667,33 @@ def lc79():
         raw_rows, success = fetch_sessions()
         if not success and not HISTORY_CACHE:
             return jsonify({'error': 'Không thể kết nối API'}), 500
-        for row in raw_rows: HISTORY_CACHE[row['phien']] = row
-        for k in [k for k in HISTORY_CACHE if k < RESET_ID]: del HISTORY_CACHE[k]
+        for row in raw_rows:
+            HISTORY_CACHE[row['phien']] = row
+        for k in [k for k in HISTORY_CACHE if k < RESET_ID]:
+            del HISTORY_CACHE[k]
         valid = sorted(HISTORY_CACHE.values(), key=lambda x: x['phien'])
-        if not valid: return jsonify({'error': 'Chưa có dữ liệu'}), 400
+        if not valid:
+            return jsonify({'error': 'Chưa có dữ liệu'}), 400
         results = [v['result'] for v in valid][::-1]
 
         loss_streak = compute_loss_streak(valid)
-        base_pred, base_conf, detail = bootstrap_predict(results)
-        if not isinstance(detail, list): detail = []
+        base_pred, base_conf, pattern_type = bootstrap_predict(results)
         pred, conf, flipped, reason = apply_recovery(base_pred, base_conf, loss_streak)
 
-        tai_score = sum(s['adjusted_weight'] for s in detail if s['pred'] == 'Tài')
-        xiu_score = sum(s['adjusted_weight'] for s in detail if s['pred'] == 'Xỉu')
-        total_sig = tai_score + xiu_score
-        if total_sig > 0:
-            ratio = max(tai_score, xiu_score) / total_sig
-            base_conf_f = 50 + (ratio - 0.5) * 100
-            evidence = min(1.0, total_sig / 50.0)
-            conf_float = max(50.0, min(95.0, 50 + (base_conf_f - 50) * evidence))
-        else:
-            conf_float = float(base_conf)
-        conf_str = f"{conf_float:.1f}".replace(".", ",") + "%"
+        conf_str = f"{conf:.1f}".replace(".", ",") + "%"
         groups = get_groups(results)
         lich_su = "-" + "-".join(str(g) for g in groups[:4])
-        last = valid[-1]; next_phien = last['phien'] + 1
+        last = valid[-1]
+        next_phien = last['phien'] + 1
 
         return jsonify({
-            'Id': 'le minh v29', 'Phien': str(next_phien),
-            'Ket_qua': last['result'].lower(), 'Lich_su': lich_su,
-            'Du_doan': pred, 'Do_tin_cay': conf_str,
+            'Id': 'le minh cau5',
+            'Phien': str(next_phien),
+            'Ket_qua': last['result'].lower(),
+            'Lich_su': lich_su,
+            'Du_doan': pred,
+            'Do_tin_cay': conf_str,
+            'Cau': pattern_type,
             'Base_du_doan': base_pred if flipped else None,
             'Auto_flip': flipped,
             'Chuoi_thua': loss_streak,
@@ -1180,29 +710,21 @@ def lc79md5():
         raw_rows, success = fetch_sessions()
         if not success and not HISTORY_CACHE:
             return jsonify({'error': 'Không thể kết nối API'}), 500
-        for row in raw_rows: HISTORY_CACHE[row['phien']] = row
-        for k in [k for k in HISTORY_CACHE if k < RESET_ID]: del HISTORY_CACHE[k]
+        for row in raw_rows:
+            HISTORY_CACHE[row['phien']] = row
+        for k in [k for k in HISTORY_CACHE if k < RESET_ID]:
+            del HISTORY_CACHE[k]
         valid = sorted(HISTORY_CACHE.values(), key=lambda x: x['phien'])
-        if not valid: return jsonify({'error': 'Chưa có dữ liệu'}), 400
+        if not valid:
+            return jsonify({'error': 'Chưa có dữ liệu'}), 400
 
         results = [v['result'] for v in valid][::-1]
 
         loss_streak = compute_loss_streak(valid)
-        base_pred, base_conf, detail = bootstrap_predict(results)
-        if not isinstance(detail, list): detail = []
+        base_pred, base_conf, pattern_type = bootstrap_predict(results)
         pred, conf, flipped, reason = apply_recovery(base_pred, base_conf, loss_streak)
 
-        tai_score = sum(s['adjusted_weight'] for s in detail if s['pred'] == 'Tài')
-        xiu_score = sum(s['adjusted_weight'] for s in detail if s['pred'] == 'Xỉu')
-        total_sig = tai_score + xiu_score
-        if total_sig > 0:
-            ratio = max(tai_score, xiu_score) / total_sig
-            base_conf_f = 50 + (ratio - 0.5) * 100
-            evidence = min(1.0, total_sig / 50.0)
-            conf_float = max(50.0, min(95.0, 50 + (base_conf_f - 50) * evidence))
-        else:
-            conf_float = float(base_conf)
-        conf_str = f"{conf_float:.1f}".replace(".", ",") + "%"
+        conf_str = f"{conf:.1f}".replace(".", ",") + "%"
 
         last = valid[-1]
         dice_parts = last['dice'].split(" + ")
@@ -1220,6 +742,7 @@ def lc79md5():
             'ket_qua': ket_qua_str,
             'du_doan': pred,
             'do_tin_cay': conf_str,
+            'cau': pattern_type,
             'lich_su': lich_su,
             'base_du_doan': base_pred if flipped else None,
             'auto_flip': flipped,
