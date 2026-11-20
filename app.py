@@ -2,7 +2,6 @@ import os
 import math
 import time
 import hashlib
-import random
 import traceback
 from datetime import datetime
 from collections import defaultdict, Counter
@@ -25,26 +24,23 @@ FETCH_RETRY = 2
 FETCH_TIMEOUT = 6
 
 # =====================================================================
-# CẤU HÌNH LC79 RANDOM-5 (ĐẢO/THUẬN/NGHỊCH)
+# CẤU HÌNH THUẬT TOÁN LC79 MD5 PRO
 # =====================================================================
 WINDOW_SIZE = 5
 FINGERPRINT_MIN_MATCH = 3
+FINGERPRINT_STRONG = 0.72
 TRANSITION_MIN_SAMPLES = 8
+MOMENTUM_MIN_STREAK = 3
 ENTROPY_HIGH = 0.98
 ENTROPY_LOW = 0.55
 
-# Random-5 config
-RANDOM_ITERATIONS = 800           # Số lần Monte Carlo
-FIVE_SESSION_WEIGHT = 1.5         # Hệ số boost tín hiệu 5 phiên
-PATTERN_MIN_OCCURRENCES = 3
-BAYES_PRIOR_ALPHA = 1.0
+# Cấu hình nâng cấp
+PATTERN_MIN_OCCURRENCES = 4       # pattern 4-gram cần >=4 lần
+BAYES_PRIOR_ALPHA = 1.0           # Laplace smoothing
+MARKOV_ORDER = 2                  # Markov bậc 2
+DRIFT_WINDOW = 30                 # cửa sổ phát hiện drift
 CONFIDENCE_FLOOR = 50
-CONFIDENCE_CEIL = 96
-
-# Trọng số 3 mode 5 phiên
-WEIGHT_DAO = 1.4                  # Đảo: T-X-T-X-T
-WEIGHT_THUAN = 1.2                # Thuận: T-T-T-T-T hoặc X-X-X-X-X
-WEIGHT_NGHICH = 1.3               # Nghịch: đảo chiều xu hướng
+CONFIDENCE_CEIL = 95
 
 
 # =====================================================================
@@ -52,28 +48,6 @@ WEIGHT_NGHICH = 1.3               # Nghịch: đảo chiều xu hướng
 # =====================================================================
 def _opp(v):
     return "Xỉu" if v == "Tài" else "Tài"
-
-
-def _to_bits(results):
-    return "".join("1" if r == "Tài" else "0" for r in results)
-
-
-def _md5(s):
-    return hashlib.md5(s.encode()).hexdigest()
-
-
-def _entropy(seq):
-    if not seq:
-        return 0.0
-    t = seq.count("Tài")
-    p = t / len(seq)
-    q = 1 - p
-    e = 0.0
-    if p > 0:
-        e -= p * math.log2(p)
-    if q > 0:
-        e -= q * math.log2(q)
-    return e
 
 
 def get_groups(results):
@@ -93,420 +67,523 @@ def get_groups(results):
     return groups
 
 
-# =====================================================================
-# 🎯 CORE: PHÂN TÍCH 5 PHIÊN ĐẢO/THUẬN/NGHỊCH
-# =====================================================================
+def _entropy(seq):
+    if not seq:
+        return 0.0
+    t = seq.count("Tài")
+    p = t / len(seq)
+    q = 1 - p
+    e = 0.0
+    if p > 0:
+        e -= p * math.log2(p)
+    if q > 0:
+        e -= q * math.log2(q)
+    return e
 
-def analyze_5session_mode(results):
+
+def _to_bits(results):
+    return "".join("1" if r == "Tài" else "0" for r in results)
+
+
+def _md5(s):
+    return hashlib.md5(s.encode()).hexdigest()
+
+
+def _safe_div(a, b, default=0.5):
+    return a / b if b > 0 else default
+
+
+# =====================================================================
+# TẦNG 1: MD5 FINGERPRINT MATCHING (NÂNG CẤP)
+# =====================================================================
+def lc79_fingerprint(results):
     """
-    Phân tích 5 phiên gần nhất và phân loại thành 3 mode:
-    - ĐẢO (alternating): T-X-T-X-T hoặc X-T-X-T-X
-    - THUẬN (streak/trend): T-T-T-T-T, X-X-X-X-X, hoặc trend rõ ràng
-    - NGHỊCH (reverse): có dấu hiệu đảo chiều xu hướng
-    
-    Trả về dict: {mode, confidence, next_pred, detail}
+    Nâng cấp: Thử nhiều window size (3,4,5,6) và chọn cái tốt nhất.
     """
-    if len(results) < 5:
+    if len(results) < 10:
         return None
-    
-    last5 = results[:5]           # mới nhất -> cũ nhất
-    last5_bits = _to_bits(last5)
-    
-    # ---------- PHÂN TÍCH ĐẢO (ALTERNATING) ----------
-    alternations = sum(1 for i in range(4) if last5[i] != last5[i + 1])
-    dao_score = 0
-    if alternations == 4:
-        dao_score = 1.0           # Hoàn hảo: T-X-T-X-T
-    elif alternations == 3:
-        dao_score = 0.7           # Gần đảo
-    elif alternations == 2:
-        dao_score = 0.35
-    
-    # ---------- PHÂN TÍCH THUẬN (STREAK/TREND) ----------
-    # Streak liên tiếp ở đầu
+
+    bits = _to_bits(results)
+    best = None
+
+    for ws in (6, 5, 4, 3):
+        if len(bits) < ws + 5:
+            continue
+        cur_fp = bits[:ws]
+        tai_next = xiu_next = 0
+        total = 0
+
+        for i in range(1, len(bits) - ws):
+            if bits[i:i + ws] == cur_fp:
+                nxt = bits[i - 1]
+                if nxt == "1":
+                    tai_next += 1
+                else:
+                    xiu_next += 1
+                total += 1
+
+        if total < FINGERPRINT_MIN_MATCH:
+            continue
+
+        p_tai = tai_next / total
+        ratio = max(p_tai, 1 - p_tai)
+        if ratio < 0.62:
+            continue
+
+        # Score = ratio * log(samples) để cân bằng giữa độ mạnh và số mẫu
+        score = ratio * math.log2(total + 1)
+        if best is None or score > best['score']:
+            pred = "Tài" if p_tai >= 0.5 else "Xỉu"
+            best = {
+                'pred': pred,
+                'ratio': ratio,
+                'samples': total,
+                'window': ws,
+                'score': score,
+                'tai_next': tai_next,
+                'xiu_next': xiu_next,
+            }
+
+    if not best:
+        return None
+
+    sample_bonus = min(7, int(math.log2(best['samples'] + 1) * 2.5))
+    window_bonus = 2 if best['window'] >= 5 else 0
+    weight = 11 + sample_bonus + window_bonus + int((best['ratio'] - 0.5) * 30)
+    weight = max(11, min(26, weight))
+
+    return (best['pred'], weight, {
+        "fp": _md5(bits[:best['window']])[:8],
+        "samples": best['samples'],
+        "ratio": round(best['ratio'], 3),
+        "window": best['window'],
+        "tai_next": best['tai_next'],
+        "xiu_next": best['xiu_next'],
+    })
+
+
+# =====================================================================
+# TẦNG 2: MD5 TRANSITION MATRIX (NÂNG CẤP - MULTI-ORDER)
+# =====================================================================
+def lc79_transition_md5(results):
+    """
+    Nâng cấp: kết hợp 2-gram, 3-gram, 4-gram MD5 transition.
+    """
+    if len(results) < 20:
+        return None
+
+    bits = _to_bits(results)
+    signals = []
+
+    for order in (2, 3, 4):
+        if len(bits) < order + 10:
+            continue
+        cur_key = _md5(bits[:order])
+        tr = defaultdict(lambda: {"Tài": 0, "Xỉu": 0})
+
+        for i in range(1, len(bits) - order):
+            k = _md5(bits[i:i + order])
+            nxt = bits[i - 1]
+            tr[k][("Tài" if nxt == "1" else "Xỉu")] += 1
+
+        d = tr.get(cur_key)
+        if not d:
+            continue
+        tot = d["Tài"] + d["Xỉu"]
+        if tot < TRANSITION_MIN_SAMPLES:
+            continue
+
+        p_tai = (d["Tài"] + BAYES_PRIOR_ALPHA) / (tot + 2 * BAYES_PRIOR_ALPHA)
+        ratio = max(p_tai, 1 - p_tai)
+        if ratio < 0.62:
+            continue
+
+        signals.append({
+            'pred': "Tài" if p_tai >= 0.5 else "Xỉu",
+            'ratio': ratio,
+            'samples': tot,
+            'order': order,
+        })
+
+    if not signals:
+        return None
+
+    # Weighted vote giữa các order
+    st = sx = 0.0
+    for s in signals:
+        w = s['ratio'] * math.log2(s['samples'] + 1) * s['order']
+        if s['pred'] == "Tài":
+            st += w
+        else:
+            sx += w
+
+    if st == sx:
+        return None
+
+    pred = "Tài" if st > sx else "Xỉu"
+    ratio = max(st, sx) / (st + sx)
+    if ratio < 0.6:
+        return None
+
+    weight = 9 + int((ratio - 0.6) * 40) + len(signals) * 2
+    weight = max(9, min(22, weight))
+
+    return (pred, weight, {
+        "samples": sum(s['samples'] for s in signals),
+        "ratio": round(ratio, 3),
+        "orders": [s['order'] for s in signals],
+        "n_signals": len(signals),
+    })
+
+
+# =====================================================================
+# TẦNG 3: MOMENTUM + ENTROPY (NÂNG CẤP)
+# =====================================================================
+def lc79_momentum_entropy(results):
+    """
+    Nâng cấp: thêm phát hiện nhịp 1-1, 2-2, 3-3 (alternating patterns).
+    """
+    if len(results) < 10:
+        return None
+
     streak = 1
-    for r in last5[1:]:
-        if r == last5[0]:
+    for r in results[1:]:
+        if r == results[0]:
             streak += 1
         else:
             break
-    thuan_score = 0
-    if streak == 5:
-        thuan_score = 1.0         # T-T-T-T-T
-    elif streak == 4:
-        thuan_score = 0.75
-    elif streak == 3:
-        thuan_score = 0.45
-    
-    # Trend rõ ràng: 4/5 giống nhau
-    cnt = Counter(last5)
-    top_val, top_cnt = cnt.most_common(1)[0]
-    if top_cnt == 4:
-        thuan_score = max(thuan_score, 0.65)
-    elif top_cnt == 5:
-        thuan_score = max(thuan_score, 1.0)
-    
-    # ---------- PHÂN TÍCH NGHỊCH (REVERSE) ----------
-    # Nghịch = xu hướng đảo chiều: 3 phiên đầu cùng A, 2 phiên cuối cùng B
-    # hoặc 4 phiên đầu cùng A, phiên cuối B (đang đảo)
-    nghich_score = 0
-    if len(last5) == 5:
-        # Pattern AAABB (3-2): đảo từ B về A? Hoặc đang đảo từ A sang B?
-        if last5[0] == last5[1] == last5[2] and last5[3] == last5[4] and last5[0] != last5[3]:
-            nghich_score = 0.85   # Pattern 3-2 rõ ràng
-        # Pattern AABBB (2-3)
-        elif last5[0] == last5[1] and last5[2] == last5[3] == last5[4] and last5[0] != last5[2]:
-            nghich_score = 0.9    # Pattern 2-3 rõ ràng (đảo mạnh)
-        # Pattern ABBBB (1-4): đang đảo về B
-        elif last5[0] != last5[1] and last5[1] == last5[2] == last5[3] == last5[4]:
-            nghich_score = 0.7
-        # Pattern AABAB hoặc ABABB (zigzag phức tạp)
-        elif alternations == 2 and top_cnt == 3:
-            nghich_score = 0.5
-    
-    # ---------- XÁC ĐỊNH MODE CHIẾN THẮNG ----------
-    scores = {
-        'dao': dao_score,
-        'thuan': thuan_score,
-        'nghich': nghich_score,
-    }
-    mode = max(scores, key=scores.get)
-    mode_score = scores[mode]
-    
-    if mode_score < 0.3:
-        return None                # Không đủ tín hiệu
-    
-    # ---------- XÁC ĐỊNH DỰ ĐOÁN TIẾP THEO ----------
-    last = last5[0]
-    
-    if mode == 'dao':
-        # Đảo: phiên tiếp = ngược phiên cuối
-        pred = _opp(last)
-        weight = int(10 * WEIGHT_DAO * (1 + dao_score))
-        reason = f"ĐẢO ({alternations}/4 đảo)"
-    
-    elif mode == 'thuan':
-        # Thuận: phiên tiếp = tiếp tục xu hướng
-        if streak >= 4:
-            # Streak dài → có thể sắp đảo (cảnh báo)
-            if streak >= 5:
-                # Quá dài, 60% tiếp tục, 40% đảo
-                pred = last if random.random() < 0.6 else _opp(last)
-                reason = f"THUẬN dài ({streak}) - bias nhẹ"
-            else:
-                pred = last
-                reason = f"THUẬN ({streak} streak)"
-        else:
-            pred = top_val
-            reason = f"THUẬN trend ({top_cnt}/5)"
-        weight = int(10 * WEIGHT_THUAN * (1 + thuan_score))
-    
-    else:  # nghich
-        # Nghịch: phiên tiếp = đảo chiều xu hướng đang chạy
-        # Nếu 2 phiên cuối cùng B → dự đoán A (đảo tiếp)
-        if last5[0] == last5[1]:
-            # Đang streak ngắn → chuẩn bị đảo
-            pred = _opp(last5[0])
-        else:
-            # Đang zigzag → về xu hướng trước
-            pred = _opp(last)
-        weight = int(10 * WEIGHT_NGHICH * (1 + nghich_score))
-        reason = f"NGHỊCH (reverse pattern)"
-    
-    # ---------- CONFIDENCE ----------
-    conf = 55 + int(mode_score * 35)  # 55-90
-    
-    return {
-        'mode': mode,
-        'pred': pred,
-        'weight': max(8, min(28, weight)),
-        'confidence': min(92, conf),
-        'mode_score': round(mode_score, 3),
-        'reason': reason,
-        'detail': {
-            'last5': last5,
-            'alternations': alternations,
-            'streak': streak,
-            'top_count': top_cnt,
-            'scores': {k: round(v, 2) for k, v in scores.items()},
-        }
-    }
+
+    e = _entropy(results[:20]) if len(results) >= 20 else _entropy(results)
+
+    # 1. Phát hiện nhịp đảo 1-1 (T-X-T-X...)
+    if len(results) >= 6:
+        alt = all(results[i] != results[i + 1] for i in range(6))
+        if alt:
+            return (_opp(results[0]), 13, {
+                "type": "alt_1_1",
+                "entropy": round(e, 3),
+            })
+
+    # 2. Phát hiện nhịp 2-2 (TT-XX-TT-XX)
+    if len(results) >= 8:
+        pairs = [(results[i], results[i + 1]) for i in range(0, 8, 2)]
+        if all(p[0] == p[1] for p in pairs):
+            pair_vals = [p[0] for p in pairs]
+            if all(pair_vals[i] != pair_vals[i + 1] for i in range(len(pair_vals) - 1)):
+                next_pair_val = _opp(pair_vals[-1])
+                return (next_pair_val, 12, {
+                    "type": "alt_2_2",
+                    "entropy": round(e, 3),
+                })
+
+    # 3. Phát hiện nhịp 3-3
+    if len(results) >= 9:
+        triples = [(results[i], results[i + 1], results[i + 2]) for i in range(0, 9, 3)]
+        if all(t[0] == t[1] == t[2] for t in triples):
+            triple_vals = [t[0] for t in triples]
+            if all(triple_vals[i] != triple_vals[i + 1] for i in range(len(triple_vals) - 1)):
+                return (_opp(triple_vals[-1]), 12, {
+                    "type": "alt_3_3",
+                    "entropy": round(e, 3),
+                })
+
+    # 4. Momentum ngắn (streak 3-6)
+    if MOMENTUM_MIN_STREAK <= streak <= 7:
+        ratio = results[:10].count(results[0]) / 10
+        if ratio >= 0.65:
+            w = 13 if e < 0.85 else 10
+            return (results[0], w, {
+                "type": "momentum_hold",
+                "streak": streak,
+                "ratio": round(ratio, 3),
+                "entropy": round(e, 3),
+            })
+        if ratio <= 0.35:
+            w = 13 if e < 0.85 else 10
+            return (_opp(results[0]), w, {
+                "type": "momentum_break",
+                "streak": streak,
+                "ratio": round(ratio, 3),
+                "entropy": round(e, 3),
+            })
+
+    # 5. Entropy cao -> đảo
+    if e >= ENTROPY_HIGH:
+        return (_opp(results[0]), 9, {
+            "type": "entropy_balanced_reverse",
+            "entropy": round(e, 3),
+        })
+
+    # 6. Entropy thấp -> áp lực
+    if e <= ENTROPY_LOW and len(results) >= 20:
+        w = results[:20]
+        tc = w.count("Tài")
+        if tc >= 15:
+            return ("Xỉu", 12, {"type": "pressure_tai", "tai_count": tc})
+        if tc <= 5:
+            return ("Tài", 12, {"type": "pressure_xiu", "tai_count": tc})
+
+    return None
 
 
 # =====================================================================
-# 🎲 MONTE CARLO RANDOM ANALYSIS (CHỐNG OVERFIT)
+# TẦNG 4 (MỚI): PATTERN N-GRAM FREQUENCY
 # =====================================================================
-
-def monte_carlo_random_analysis(results, iterations=RANDOM_ITERATIONS):
+def lc79_pattern_ngram(results):
     """
-    Mô phỏng Monte Carlo: tạo nhiều chuỗi random từ phân phối lịch sử,
-    kiểm tra pattern 5 phiên nào dẫn đến kết quả gì.
-    Mục đích: đánh giá xác suất thực của phiên tiếp theo dựa trên
-    pattern 5 phiên hiện tại.
+    Phân tích pattern n-gram (3,4,5) tần suất và dự đoán dựa trên
+    pattern khớp gần nhất + tỷ lệ kế tiếp.
     """
     if len(results) < 20:
         return None
-    
-    last5 = tuple(results[:5])
+
     bits = _to_bits(results)
-    
-    # Đếm tần suất thực từ lịch sử
-    tai_after = xiu_after = 0
-    pattern_matches = 0
-    for i in range(1, len(bits) - 5):
-        if bits[i:i + 5] == bits[:5]:
-            pattern_matches += 1
-            if bits[i - 1] == "1":
-                tai_after += 1
-            else:
-                xiu_after += 1
-    
-    if pattern_matches < 3:
+    signals = []
+
+    for order in (3, 4, 5):
+        if len(bits) < order + 10:
+            continue
+        cur = bits[:order]
+        tai_next = xiu_next = 0
+        for i in range(1, len(bits) - order):
+            if bits[i:i + order] == cur:
+                if bits[i - 1] == "1":
+                    tai_next += 1
+                else:
+                    xiu_next += 1
+        total = tai_next + xiu_next
+        if total < PATTERN_MIN_OCCURRENCES:
+            continue
+
+        p_tai = (tai_next + BAYES_PRIOR_ALPHA) / (total + 2 * BAYES_PRIOR_ALPHA)
+        ratio = max(p_tai, 1 - p_tai)
+        if ratio < 0.65:
+            continue
+        signals.append({
+            'pred': "Tài" if p_tai >= 0.5 else "Xỉu",
+            'ratio': ratio,
+            'samples': total,
+            'order': order,
+        })
+
+    if not signals:
         return None
-    
-    # Monte Carlo: sample ngẫu nhiên từ pattern matches
-    true_p_tai = tai_after / pattern_matches
-    
-    random.seed(RANDOM_SEED_BASE + hash(last5) % 100000)
-    sampled_tai = 0
-    for _ in range(iterations):
-        # Bootstrap sampling: chọn ngẫu nhiên 1 phiên trong pattern matches
-        if random.random() < true_p_tai:
-            sampled_tai += 1
-    
-    mc_p_tai = sampled_tai / iterations
-    
-    # Kết hợp cả hai
-    p_tai = (true_p_tai * 0.6 + mc_p_tai * 0.4)
-    ratio = max(p_tai, 1 - p_tai)
-    
-    if ratio < 0.62:
+
+    st = sx = 0.0
+    for s in signals:
+        w = s['ratio'] * math.log2(s['samples'] + 1) * (s['order'] - 1)
+        if s['pred'] == "Tài":
+            st += w
+        else:
+            sx += w
+
+    if st == sx:
         return None
-    
-    pred = "Tài" if p_tai >= 0.5 else "Xỉu"
-    
-    # Confidence từ Monte Carlo stability
-    stability = 1 - abs(true_p_tai - mc_p_tai)  # càng gần càng ổn định
-    weight = 9 + int((ratio - 0.5) * 40) + int(stability * 5)
-    weight = max(9, min(26, weight))
-    
-    return {
-        'pred': pred,
-        'weight': weight,
-        'confidence': 55 + int(ratio * 30),
-        'detail': {
-            'type': 'monte_carlo',
-            'matches': pattern_matches,
-            'p_tai_hist': round(true_p_tai, 3),
-            'p_tai_mc': round(mc_p_tai, 3),
-            'stability': round(stability, 3),
-            'iterations': iterations,
-        }
-    }
+
+    pred = "Tài" if st > sx else "Xỉu"
+    ratio = max(st, sx) / (st + sx)
+    weight = 10 + int((ratio - 0.6) * 35) + len(signals) * 2
+    weight = max(10, min(23, weight))
+
+    return (pred, weight, {
+        "ratio": round(ratio, 3),
+        "n_signals": len(signals),
+        "orders": [s['order'] for s in signals],
+        "total_samples": sum(s['samples'] for s in signals),
+    })
 
 
 # =====================================================================
-# 🧬 RANDOM PATTERN SEQUENCE ANALYSIS
+# TẦNG 5 (MỚI): MARKOV CHAIN BẬC 2 (KHÔNG MD5)
 # =====================================================================
-
-def random_sequence_analysis(results):
+def lc79_markov2(results):
     """
-    Phân tích 5 phiên dưới góc nhìn "random sequence":
-    - Tìm sequence tương tự trong lịch sử
-    - Xem kết quả sau sequence đó phân bố thế nào
-    - Áp dụng entropy + z-score để chống noise
+    Markov chain bậc 2 đơn giản: P(next | last2).
+    Không dùng MD5 → bắt được pattern ngắn khác fingerprint MD5.
+    """
+    if len(results) < 25:
+        return None
+
+    bits = _to_bits(results)
+    if len(bits) < 3:
+        return None
+
+    cur_state = bits[:2]
+    tr = defaultdict(lambda: {"Tài": 0, "Xỉu": 0})
+    for i in range(1, len(bits) - 2):
+        state = bits[i:i + 2]
+        nxt = bits[i - 1]
+        tr[state][("Tài" if nxt == "1" else "Xỉu")] += 1
+
+    d = tr.get(cur_state)
+    if not d:
+        return None
+    tot = d["Tài"] + d["Xỉu"]
+    if tot < 6:
+        return None
+
+    p_tai = (d["Tài"] + BAYES_PRIOR_ALPHA) / (tot + 2 * BAYES_PRIOR_ALPHA)
+    ratio = max(p_tai, 1 - p_tai)
+    if ratio < 0.6:
+        return None
+
+    pred = "Tài" if p_tai >= 0.5 else "Xỉu"
+    weight = 8 + int((ratio - 0.55) * 35) + min(3, tot // 5)
+    weight = max(8, min(20, weight))
+
+    return (pred, weight, {
+        "state": cur_state,
+        "samples": tot,
+        "ratio": round(ratio, 3),
+        "tai_next": d["Tài"],
+        "xiu_next": d["Xỉu"],
+    })
+
+
+# =====================================================================
+# TẦNG 6 (MỚI): BAYESIAN WEIGHTED VOTE (FREQUENCY + RECENCY)
+# =====================================================================
+def lc79_bayesian_recency(results):
+    """
+    Phân tích tần suất có trọng số recency (phiên gần = trọng số cao hơn).
+    Trả về tín hiệu khi có sự lệch rõ ràng.
+    """
+    if len(results) < 15:
+        return None
+
+    n = min(len(results), 25)
+    weighted_tai = weighted_xiu = 0.0
+    for i, r in enumerate(results[:n]):
+        # exponential decay: phiên mới (i=0) weight = 1, phiên cũ hơn giảm dần
+        w = math.exp(-i / 8.0)
+        if r == "Tài":
+            weighted_tai += w
+        else:
+            weighted_xiu += w
+
+    total = weighted_tai + weighted_xiu
+    if total == 0:
+        return None
+
+    p_tai = weighted_tai / total
+    ratio = max(p_tai, 1 - p_tai)
+    if ratio < 0.63:
+        return None
+
+    pred = "Tài" if p_tai >= 0.5 else "Xỉu"
+    weight = 7 + int((ratio - 0.6) * 35)
+    weight = max(7, min(18, weight))
+
+    return (pred, weight, {
+        "p_tai": round(p_tai, 3),
+        "ratio": round(ratio, 3),
+        "window": n,
+    })
+
+
+# =====================================================================
+# TẦNG 7 (MỚI): STREAK BREAKER PREDICTION
+# =====================================================================
+def lc79_streak_pressure(results):
+    """
+    Phân tích streak áp lực: khi một chuỗi streak dài bất thường
+    so với lịch sử trung bình → dự đoán đảo.
     """
     if len(results) < 30:
         return None
-    
-    bits = _to_bits(results)
-    seq5 = bits[:5]
-    
-    # Tìm các sequence giống (không cần MD5, matching trực tiếp)
-    matches = []
-    for i in range(1, len(bits) - 5):
-        if bits[i:i + 5] == seq5:
-            matches.append(i - 1)  # index của phiên kế tiếp
-    
-    if len(matches) < 4:
-        return None
-    
-    # Đếm kết quả
-    tai_count = sum(1 for idx in matches if bits[idx] == "1")
-    xiu_count = len(matches) - tai_count
-    total = len(matches)
-    
-    # Laplace smoothing
-    p_tai = (tai_count + BAYES_PRIOR_ALPHA) / (total + 2 * BAYES_PRIOR_ALPHA)
-    ratio = max(p_tai, 1 - p_tai)
-    
-    # Z-score: kiểm tra pattern này có ý nghĩa thống kê không
-    expected = 0.5
-    std_dev = math.sqrt(expected * (1 - expected) / total) if total > 0 else 1
-    z_score = abs(p_tai - expected) / std_dev if std_dev > 0 else 0
-    
-    if z_score < 1.0 and ratio < 0.68:
-        return None                # Không đủ ý nghĩa
-    
-    pred = "Tài" if p_tai >= 0.5 else "Xỉu"
-    
-    # Weight tăng theo z-score
-    weight = 10 + int(min(10, z_score * 3)) + int((ratio - 0.5) * 20)
-    weight = max(10, min(26, weight))
-    
-    return {
-        'pred': pred,
-        'weight': weight,
-        'confidence': 55 + int(ratio * 30),
-        'detail': {
-            'type': 'random_sequence',
-            'seq': seq5,
-            'matches': total,
-            'tai': tai_count,
-            'xiu': xiu_count,
-            'ratio': round(ratio, 3),
-            'z_score': round(z_score, 2),
-        }
-    }
 
-
-# =====================================================================
-# 🔮 RANDOM WALK PREDICTION (BƯỚC NGẪU NHIÊN CÓ TRỌNG SỐ)
-# =====================================================================
-
-def random_walk_prediction(results):
-    """
-    Random walk: giả sử kết quả tiếp theo phụ thuộc vào "bước đi" ngẫu nhiên
-    có bias. Tính bias từ phân phối 5 phiên gần + lịch sử xa.
-    """
-    if len(results) < 20:
-        return None
-    
-    # Trọng số recency cho 5 phiên gần
-    weights_5 = [1.0, 0.85, 0.7, 0.55, 0.4]
-    weighted_5_tai = 0.0
-    for i, r in enumerate(results[:5]):
-        if r == "Tài":
-            weighted_5_tai += weights_5[i]
-    
-    total_w_5 = sum(weights_5)
-    p_5 = weighted_5_tai / total_w_5
-    
-    # Trọng số 20 phiên
-    weights_20 = [math.exp(-i / 10.0) for i in range(min(20, len(results)))]
-    weighted_20_tai = 0.0
-    for i, r in enumerate(results[:len(weights_20)]):
-        if r == "Tài":
-            weighted_20_tai += weights_20[i]
-    total_w_20 = sum(weights_20)
-    p_20 = weighted_20_tai / total_w_20
-    
-    # Kết hợp: 60% ngắn hạn + 40% trung hạn
-    p_tai = p_5 * 0.6 + p_20 * 0.4
-    ratio = max(p_tai, 1 - p_tai)
-    
-    if ratio < 0.6:
-        return None
-    
-    pred = "Tài" if p_tai >= 0.5 else "Xỉu"
-    
-    # Drift detection: nếu p_5 và p_20 lệch nhau nhiều → tín hiệu thay đổi
-    drift = abs(p_5 - p_20)
-    if drift > 0.3:
-        # Có drift → có thể đang chuyển pha, giảm weight
-        weight = 8 + int(ratio * 10)
-    else:
-        weight = 10 + int((ratio - 0.5) * 35)
-    
-    weight = max(8, min(24, weight))
-    
-    return {
-        'pred': pred,
-        'weight': weight,
-        'confidence': 55 + int(ratio * 25),
-        'detail': {
-            'type': 'random_walk',
-            'p_5': round(p_5, 3),
-            'p_20': round(p_20, 3),
-            'drift': round(drift, 3),
-        }
-    }
-
-
-# =====================================================================
-# 🎯 5-SESSION DEEP PATTERN MATCHER
-# =====================================================================
-
-def five_session_deep_pattern(results):
-    """
-    Phân tích 5 phiên với ma trận chuyển đổi đặc biệt:
-    Xét 5 phiên như vector đặc trưng, tìm các vector tương tự trong lịch sử.
-    """
-    if len(results) < 40:
-        return None
-    
-    last5 = results[:5]
-    bits = _to_bits(results)
-    
-    # Tìm mẫu gần giống: ít nhất 4/5 phiên khớp
-    partial_matches = []
-    for i in range(1, len(bits) - 5):
-        window = bits[i:i + 5]
-        match_count = sum(1 for j in range(5) if window[j] == bits[j])
-        if match_count >= 4:
-            partial_matches.append((match_count, i - 1))
-    
-    if len(partial_matches) < 5:
-        return None
-    
-    # Weighted voting by match count
-    tai_w = xiu_w = 0.0
-    for match_count, idx in partial_matches:
-        w = match_count ** 2  # 4→16, 5→25
-        if bits[idx] == "1":
-            tai_w += w
+    streak = 1
+    for r in results[1:]:
+        if r == results[0]:
+            streak += 1
         else:
-            xiu_w += w
-    
-    total = tai_w + xiu_w
-    if total == 0:
+            break
+
+    groups = get_groups(results)
+    if len(groups) < 5:
         return None
-    
-    p_tai = tai_w / total
-    ratio = max(p_tai, 1 - p_tai)
-    
-    if ratio < 0.62:
+
+    # Bỏ group đầu tiên (đang chạy) khỏi tính trung bình
+    past_groups = groups[1:min(len(groups), 20)]
+    if not past_groups:
         return None
-    
-    pred = "Tài" if p_tai >= 0.5 else "Xỉu"
-    weight = 11 + int((ratio - 0.5) * 35) + min(6, len(partial_matches) // 2)
-    weight = max(11, min(27, weight))
-    
-    return {
-        'pred': pred,
-        'weight': weight,
-        'confidence': 55 + int(ratio * 30),
-        'detail': {
-            'type': 'five_session_deep',
-            'partial_matches': len(partial_matches),
-            'p_tai': round(p_tai, 3),
-            'ratio': round(ratio, 3),
-        }
-    }
+    avg_group = sum(past_groups) / len(past_groups)
+
+    if streak >= 5 and streak >= avg_group * 1.8:
+        w = 10 + min(5, int(streak / 2))
+        return (_opp(results[0]), w, {
+            "type": "streak_break",
+            "streak": streak,
+            "avg_group": round(avg_group, 2),
+        })
+
+    return None
 
 
 # =====================================================================
-# 🧠 TỔNG HỢP LC79 RANDOM-5 PRO
+# TẦNG 8 (MỚI): DICE SUM ANALYSIS
 # =====================================================================
+def _parse_dice_history(valid_rows):
+    """Trích sum dice từ history để phân tích."""
+    sums = []
+    for row in valid_rows:
+        try:
+            dice = row.get('dice', '')
+            if '+ ' in dice or '+' in dice:
+                parts = [p.strip() for p in dice.replace('+', ' + ').split('+') if p.strip()]
+                if len(parts) >= 3:
+                    s = sum(int(p) for p in parts[:3])
+                    sums.append(s)
+        except Exception:
+            continue
+    return sums
 
-def lc79_random5_predict(results, dice_sums=None):
+
+def lc79_dice_analysis(dice_sums):
     """
-    Tổng hợp tất cả phân tích, đặc biệt ưu tiên 5 phiên gần nhất.
+    Phân tích tổng xúc xắc để phát hiện bias:
+    - Tài = 11-18, Xỉu = 4-10
+    - Nếu sums gần đây lệch về 1 phía → dự đoán đảo
+    """
+    if not dice_sums or len(dice_sums) < 15:
+        return None
+
+    recent = dice_sums[:20]
+    avg = sum(recent) / len(recent)
+    # Trung bình chuẩn là 10.5
+    deviation = avg - 10.5
+
+    if abs(deviation) < 1.2:
+        return None
+
+    if deviation > 0:
+        # Gần đây dice cao → có thể sắp hạ
+        pred = "Xỉu"
+        strength = min(1.0, deviation / 3.0)
+    else:
+        pred = "Tài"
+        strength = min(1.0, abs(deviation) / 3.0)
+
+    weight = 7 + int(strength * 10)
+    return (pred, weight, {
+        "type": "dice_bias",
+        "avg_dice": round(avg, 2),
+        "deviation": round(deviation, 2),
+        "samples": len(recent),
+    })
+
+
+# =====================================================================
+# TỔNG HỢP LC79 MD5 PRO — WEIGHTED VOTING VỚI 8 TẦNG
+# =====================================================================
+def lc79_predict(results, dice_sums=None):
+    """
+    Tổng hợp 8 tầng phân tích. Trả về (pred, conf, meta).
     """
     n = len(results)
     if n == 0:
         return "Tài", 50, {"mode": "empty"}
-    
+
     # Warmup
     if n == 1:
         return _opp(results[0]), 54, {"mode": "warmup_1"}
@@ -520,11 +597,7 @@ def lc79_random5_predict(results, dice_sums=None):
         if results[0] == results[1] == results[2]:
             return results[0], 58, {"mode": "warmup_3_streak"}
         return results[0], 54, {"mode": "warmup_3_mixed"}
-    if n == 4:
-        # Phân tích đơn giản 4 phiên
-        alt = sum(1 for i in range(3) if results[i] != results[i + 1])
-        if alt == 3:
-            return _opp(results[0]), 62, {"mode": "warmup_4_alt"}
+    if n < WINDOW_SIZE + 5:
         streak = 1
         for r in results[1:]:
             if r == results[0]:
@@ -532,84 +605,76 @@ def lc79_random5_predict(results, dice_sums=None):
             else:
                 break
         if streak >= 3:
-            return results[0], 60, {"mode": "warmup_4_streak"}
-        return _opp(results[0]), 55, {"mode": "warmup_4_alt"}
-    
-    # =====================================================
-    # TỪ 5 PHIÊN TRỞ LÊN → PHÂN TÍCH ĐẦY ĐỦ
-    # =====================================================
+            return results[0], 57, {"mode": "warmup_momentum"}
+        return _opp(results[0]), 55, {"mode": "warmup_alt"}
+
     layers = []
     layer_names = []
-    
-    # 🎯 TẦNG 1 (ƯU TIÊN CAO): 5-phiên Đảo/Thuận/Nghịch
-    r = analyze_5session_mode(results)
-    if r:
-        layers.append((r['pred'], r['weight'], r['detail']))
-        layer_names.append(f"5S_{r['mode'].upper()}")
-    
-    # 🎯 TẦNG 2: Monte Carlo Random
-    r = monte_carlo_random_analysis(results)
-    if r:
-        layers.append((r['pred'], r['weight'], r['detail']))
-        layer_names.append("MonteCarlo")
-    
-    # 🎯 TẦNG 3: Random Sequence
-    r = random_sequence_analysis(results)
-    if r:
-        layers.append((r['pred'], r['weight'], r['detail']))
-        layer_names.append("RandomSeq")
-    
-    # 🎯 TẦNG 4: Random Walk
-    r = random_walk_prediction(results)
-    if r:
-        layers.append((r['pred'], r['weight'], r['detail']))
-        layer_names.append("RandomWalk")
-    
-    # 🎯 TẦNG 5: 5-Session Deep Pattern
-    r = five_session_deep_pattern(results)
-    if r:
-        layers.append((r['pred'], r['weight'], r['detail']))
-        layer_names.append("DeepPattern")
-    
-    # 🎯 TẦNG 6: MD5 Fingerprint (backup)
+
+    # Tầng 1: Fingerprint MD5
     r = lc79_fingerprint(results)
     if r:
-        layers.append((r[0], r[1], r[2]))
-        layer_names.append("FingerprintMD5")
-    
-    # 🎯 TẦNG 7: Momentum + Entropy
+        layers.append(r)
+        layer_names.append("fingerprint_md5")
+
+    # Tầng 2: Transition MD5 multi-order
+    r = lc79_transition_md5(results)
+    if r:
+        layers.append(r)
+        layer_names.append("transition_md5")
+
+    # Tầng 3: Momentum + Entropy
     r = lc79_momentum_entropy(results)
     if r:
-        layers.append((r[0], r[1], r[2]))
-        layer_names.append("Momentum")
-    
-    # 🎯 TẦNG 8: Dice analysis
+        layers.append(r)
+        layer_names.append("momentum_entropy")
+
+    # Tầng 4: Pattern n-gram
+    r = lc79_pattern_ngram(results)
+    if r:
+        layers.append(r)
+        layer_names.append("pattern_ngram")
+
+    # Tầng 5: Markov bậc 2
+    r = lc79_markov2(results)
+    if r:
+        layers.append(r)
+        layer_names.append("markov2")
+
+    # Tầng 6: Bayesian recency
+    r = lc79_bayesian_recency(results)
+    if r:
+        layers.append(r)
+        layer_names.append("bayesian_recency")
+
+    # Tầng 7: Streak pressure
+    r = lc79_streak_pressure(results)
+    if r:
+        layers.append(r)
+        layer_names.append("streak_pressure")
+
+    # Tầng 8: Dice analysis (nếu có)
     if dice_sums:
         r = lc79_dice_analysis(dice_sums)
         if r:
-            layers.append((r[0], r[1], r[2]))
-            layer_names.append("DiceBias")
-    
+            layers.append(r)
+            layer_names.append("dice_bias")
+
     if not layers:
         return _opp(results[0]), 54, {"mode": "fallback_alt"}
-    
-    # =====================================================
-    # WEIGHTED VOTING VỚI BOOST 5-PHIÊN LAYERS
-    # =====================================================
+
+    # Weighted voting
     st = sx = 0.0
-    for i, (pred, w, _) in enumerate(layers):
-        # Boost các layer 5-phiên (index 0-4)
-        boost = FIVE_SESSION_WEIGHT if i < 5 else 1.0
-        effective_w = w * boost
+    for pred, w, _ in layers:
         if pred == "Tài":
-            st += effective_w
+            st += w
         else:
-            sx += effective_w
-    
+            sx += w
+
     total_w = st + sx
     if total_w == 0:
         return _opp(results[0]), 54, {"mode": "no_signal"}
-    
+
     if st > sx:
         pred = "Tài"
         ratio = st / total_w
@@ -618,42 +683,37 @@ def lc79_random5_predict(results, dice_sums=None):
         ratio = sx / total_w
     else:
         return _opp(results[0]), 55, {"mode": "tie"}
-    
-    # =====================================================
-    # CONFIDENCE CALIBRATION
-    # =====================================================
+
+    # Confidence calibration
     agree_layers = sum(1 for p, _, _ in layers if p == pred)
     n_layers = len(layers)
-    
+
     base_conf = 52
+    # Ratio contribution (0..28)
     base_conf += int((ratio - 0.5) * 56)
-    
+    # Agreement bonus
     if n_layers >= 2:
         agreement_pct = agree_layers / n_layers
-        base_conf += int(agreement_pct * 14)
-        if agree_layers == n_layers and n_layers >= 4:
-            base_conf += 5
-    base_conf += min(4, max(0, n_layers - 3))
-    
+        base_conf += int(agreement_pct * 12)
+        # All layers agree bonus
+        if agree_layers == n_layers and n_layers >= 3:
+            base_conf += 4
+    # Layer count bonus
+    base_conf += min(4, max(0, n_layers - 2))
+
+    # Penalty nếu ít layer
     if n_layers == 1:
         base_conf -= 8
-    
-    # Boost cho 5-session mode rõ ràng
-    if layers and layer_names[0].startswith("5S_"):
-        first_detail = layers[0][2]
-        if isinstance(first_detail, dict):
-            mode_score = first_detail.get('mode_score', 0)
-            if isinstance(mode_score, (int, float)) and mode_score >= 0.8:
-                base_conf += 4
-    
+    elif n_layers == 2:
+        base_conf -= 3
+
     conf = max(CONFIDENCE_FLOOR, min(CONFIDENCE_CEIL, base_conf))
-    
+
     meta = {
-        "mode": "lc79_random5_pro",
+        "mode": "lc79_md5_pro",
         "n_layers": n_layers,
         "agree": agree_layers,
         "ratio": round(ratio, 3),
-        "five_session_boost": FIVE_SESSION_WEIGHT,
         "layers": [
             {"name": name, "pred": p, "w": w, "info": info}
             for name, (p, w, info) in zip(layer_names, layers)
@@ -663,136 +723,20 @@ def lc79_random5_predict(results, dice_sums=None):
 
 
 # =====================================================================
-# CÁC TẦNG CŨ (GIỮ LÀM BACKUP)
-# =====================================================================
-
-def lc79_fingerprint(results):
-    if len(results) < 10:
-        return None
-    bits = _to_bits(results)
-    best = None
-    for ws in (6, 5, 4, 3):
-        if len(bits) < ws + 5:
-            continue
-        cur_fp = bits[:ws]
-        tai_next = xiu_next = 0
-        for i in range(1, len(bits) - ws):
-            if bits[i:i + ws] == cur_fp:
-                if bits[i - 1] == "1":
-                    tai_next += 1
-                else:
-                    xiu_next += 1
-        total = tai_next + xiu_next
-        if total < FINGERPRINT_MIN_MATCH:
-            continue
-        p_tai = (tai_next + BAYES_PRIOR_ALPHA) / (total + 2 * BAYES_PRIOR_ALPHA)
-        ratio = max(p_tai, 1 - p_tai)
-        if ratio < 0.62:
-            continue
-        score = ratio * math.log2(total + 1)
-        if best is None or score > best['score']:
-            pred = "Tài" if p_tai >= 0.5 else "Xỉu"
-            best = {'pred': pred, 'ratio': ratio, 'samples': total,
-                    'window': ws, 'score': score}
-    if not best:
-        return None
-    sample_bonus = min(7, int(math.log2(best['samples'] + 1) * 2.5))
-    weight = 11 + sample_bonus + int((best['ratio'] - 0.5) * 30)
-    weight = max(11, min(24, weight))
-    return (best['pred'], weight, {
-        "fp": _md5(bits[:best['window']])[:8],
-        "samples": best['samples'],
-        "ratio": round(best['ratio'], 3),
-        "window": best['window'],
-    })
-
-
-def lc79_momentum_entropy(results):
-    if len(results) < 10:
-        return None
-    streak = 1
-    for r in results[1:]:
-        if r == results[0]:
-            streak += 1
-        else:
-            break
-    e = _entropy(results[:20]) if len(results) >= 20 else _entropy(results)
-    
-    # Alt pattern
-    if len(results) >= 6:
-        alt = all(results[i] != results[i + 1] for i in range(6))
-        if alt:
-            return (_opp(results[0]), 13, {"type": "alt_1_1", "entropy": round(e, 3)})
-    
-    if MOMENTUM_MIN_STREAK <= streak <= 7:
-        ratio = results[:10].count(results[0]) / 10
-        if ratio >= 0.65:
-            w = 13 if e < 0.85 else 10
-            return (results[0], w, {"type": "momentum_hold", "streak": streak})
-        if ratio <= 0.35:
-            w = 13 if e < 0.85 else 10
-            return (_opp(results[0]), w, {"type": "momentum_break", "streak": streak})
-    
-    if e >= ENTROPY_HIGH:
-        return (_opp(results[0]), 9, {"type": "entropy_reverse"})
-    
-    if e <= ENTROPY_LOW and len(results) >= 20:
-        w = results[:20]
-        tc = w.count("Tài")
-        if tc >= 15:
-            return ("Xỉu", 12, {"type": "pressure_tai", "tai_count": tc})
-        if tc <= 5:
-            return ("Tài", 12, {"type": "pressure_xiu", "tai_count": tc})
-    return None
-
-
-def _parse_dice_history(valid_rows):
-    sums = []
-    for row in valid_rows:
-        try:
-            dice = row.get('dice', '')
-            if '+' in dice:
-                parts = [p.strip() for p in dice.replace('+', ' + ').split('+') if p.strip()]
-                if len(parts) >= 3:
-                    s = sum(int(p) for p in parts[:3])
-                    sums.append(s)
-        except Exception:
-            continue
-    return sums
-
-
-def lc79_dice_analysis(dice_sums):
-    if not dice_sums or len(dice_sums) < 15:
-        return None
-    recent = dice_sums[:20]
-    avg = sum(recent) / len(recent)
-    deviation = avg - 10.5
-    if abs(deviation) < 1.2:
-        return None
-    if deviation > 0:
-        pred = "Xỉu"
-        strength = min(1.0, deviation / 3.0)
-    else:
-        pred = "Tài"
-        strength = min(1.0, abs(deviation) / 3.0)
-    weight = 7 + int(strength * 10)
-    return (pred, weight, {
-        "type": "dice_bias",
-        "avg_dice": round(avg, 2),
-        "deviation": round(deviation, 2),
-    })
-
-
-# =====================================================================
-# ADAPTIVE RECOVERY
+# ADAPTIVE RECOVERY (NÂNG CẤP)
 # =====================================================================
 def apply_recovery(base_pred, conf, loss_streak, results=None):
+    """
+    Recovery thông minh: chỉ flip khi tín hiệu đủ mạnh và entropy không quá cao.
+    """
     if loss_streak < 2:
         return base_pred, conf, False, None
+
     if results and len(results) >= 15:
         e = _entropy(results[:20] if len(results) >= 20 else results)
         if e >= 0.95 and loss_streak < 4:
             return base_pred, max(50, conf - 6), False, "high_entropy_hold"
+
     if loss_streak >= 5:
         return _opp(base_pred), min(92, conf + 16), True, "flip_5plus"
     if loss_streak == 4:
@@ -835,8 +779,12 @@ def _parse_list(data):
             phien = item.get('id') or item.get('phien')
             if phien is None:
                 continue
-            rows.append({'phien': int(phien), 'result': res,
-                         'dice': dice_str, 'total': total})
+            rows.append({
+                'phien': int(phien),
+                'result': res,
+                'dice': dice_str,
+                'total': total
+            })
         except Exception:
             continue
     return rows
@@ -880,7 +828,7 @@ def get_prediction_for(valid, i):
     if key in PREDICTION_CACHE:
         return PREDICTION_CACHE[key]
     hist = [v['result'] for v in valid[:i]][::-1]
-    pred, conf, _ = lc79_random5_predict(hist)
+    pred, conf, _ = lc79_predict(hist)
     if pred == "-":
         result = ("-", 50, None)
     else:
@@ -909,7 +857,7 @@ def compute_loss_streak(valid, max_scan=25):
 
 
 # =====================================================================
-# HTML TEMPLATE
+# HTML TEMPLATE (giữ nguyên + thêm hiển thị layers)
 # =====================================================================
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -917,7 +865,7 @@ HTML_TEMPLATE = """
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>LEMINH · LC79 RANDOM-5</title>
+<title>LEMINH · LC79 MD5 PRO</title>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <style>
@@ -930,9 +878,6 @@ HTML_TEMPLATE = """
         --lose-color: #f87171; --lose-bg: rgba(248, 113, 113, 0.15);
         --wait-color: #fbbf24; --wait-bg: rgba(251, 191, 36, 0.15);
         --recovery-color: #fb923c; --recovery-bg: rgba(251, 146, 60, 0.15);
-        --dao-color: #a78bfa; --dao-bg: rgba(167, 139, 250, 0.15);
-        --thuan-color: #22d3ee; --thuan-bg: rgba(34, 211, 238, 0.15);
-        --nghich-color: #f59e0b; --nghich-bg: rgba(245, 158, 11, 0.15);
     }
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; }
     body { background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); color: var(--text-main); min-height: 100vh; padding-bottom: 40px; }
@@ -952,22 +897,8 @@ HTML_TEMPLATE = """
     .stat-value.win { color: var(--win-color); text-shadow: 0 0 15px rgba(52, 211, 153, 0.4); }
     .stat-value.loss { color: var(--lose-color); text-shadow: 0 0 15px rgba(248, 113, 113, 0.4); }
     .stat-value.rate { color: var(--tai-color); text-shadow: 0 0 15px rgba(56, 189, 248, 0.4); }
-    .mode-card { max-width: 800px; margin: 0 auto 16px; padding: 0 16px; }
-    .mode-inner { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 14px; padding: 16px 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.2); }
-    .mode-title { font-size: 11px; color: var(--text-muted); text-transform: uppercase; font-weight: 700; margin-bottom: 12px; letter-spacing: 0.5px; }
-    .mode-row { display: flex; gap: 10px; flex-wrap: wrap; }
-    .mode-chip { flex: 1; min-width: 120px; padding: 12px; border-radius: 10px; text-align: center; border: 1px solid var(--border-color); transition: 0.3s; }
-    .mode-chip .mode-name { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
-    .mode-chip .mode-score { font-size: 20px; font-weight: 800; }
-    .mode-chip.dao { background: var(--dao-bg); border-color: rgba(167,139,250,0.3); }
-    .mode-chip.dao .mode-name { color: var(--dao-color); }
-    .mode-chip.thuan { background: var(--thuan-bg); border-color: rgba(34,211,238,0.3); }
-    .mode-chip.thuan .mode-name { color: var(--thuan-color); }
-    .mode-chip.nghich { background: var(--nghich-bg); border-color: rgba(245,158,11,0.3); }
-    .mode-chip.nghich .mode-name { color: var(--nghich-color); }
-    .mode-chip.active { transform: scale(1.05); box-shadow: 0 0 20px rgba(255,255,255,0.15); }
     .table-wrapper { max-width: 800px; margin: 0 auto; padding: 0 16px; }
-    .table-container { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); max-height: 65vh; overflow-y: auto; }
+    .table-container { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); max-height: 70vh; overflow-y: auto; }
     .data-table { width: 100%; border-collapse: separate; border-spacing: 0; }
     .data-table th { background: #111827; color: var(--text-muted); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; padding: 16px 12px; text-align: center; border-bottom: 1px solid var(--border-color); position: sticky; top: 0; z-index: 10; }
     .data-table td { padding: 14px 12px; text-align: center; border-bottom: 1px solid var(--border-color); font-size: 14px; font-weight: 600; }
@@ -1005,15 +936,13 @@ HTML_TEMPLATE = """
         .time-update { display: none; }
         .stats-bar { grid-template-columns: repeat(2, 1fr); }
         .stat-value { font-size: 18px; }
-        .mode-chip { min-width: 90px; padding: 10px 8px; }
-        .mode-chip .mode-score { font-size: 16px; }
     }
 </style>
 </head>
 <body>
 
 <div class="header">
-    <div class="header-title">LEMINH <small>LC79 RANDOM-5</small></div>
+    <div class="header-title">LEMINH <small>LC79 MD5 PRO</small></div>
     <div class="header-actions">
         <div class="time-update" id="time-update">--:--:--</div>
         <button class="btn-refresh" onclick="fetchData()">↻</button>
@@ -1028,16 +957,9 @@ HTML_TEMPLATE = """
     <div class="stat-item"><div class="stat-label">Tỷ lệ thắng</div><div class="stat-value rate" id="stat-rate">0%</div></div>
 </div>
 
-<div class="mode-card" id="mode-card" style="display:none;">
-    <div class="mode-inner">
-        <div class="mode-title"> Phân tích LC79</div>
-        <div class="mode-row" id="mode-row"></div>
-    </div>
-</div>
-
 <div class="layers-info" id="layers-info" style="display:none;">
     <div class="layers-card">
-        <div class="layers-title">XU HUONG API</div>
+        <div class="layers-title">🧠 Tín hiệu 8 tầng phân tích</div>
         <div class="layer-chips" id="layer-chips"></div>
     </div>
 </div>
@@ -1086,37 +1008,7 @@ async function fetchData() {
         document.getElementById('time-update').innerText = now.toLocaleTimeString('vi-VN');
         renderTable(data.rows || [], data.stats || {});
         renderLayers(data.meta || {});
-        renderMode(data.meta || {});
     } catch (e) { console.error("Lỗi tải dữ liệu:", e); }
-}
-
-function renderMode(meta) {
-    const card = document.getElementById('mode-card');
-    const row = document.getElementById('mode-row');
-    if (!meta || !meta.layers) { card.style.display = 'none'; return; }
-    
-    // Tìm layer 5S_
-    const fiveS = meta.layers.find(l => l.name && l.name.startsWith('5S_'));
-    if (!fiveS || !fiveS.info || !fiveS.info.scores) { card.style.display = 'none'; return; }
-    
-    card.style.display = 'block';
-    const scores = fiveS.info.scores;
-    const active = fiveS.info.mode || '';
-    
-    const names = { dao: 'ĐẢO', thuan: 'THUẬN', nghich: 'NGHỊCH' };
-    const icons = { dao: '⇄', thuan: '→', nghich: '⟲' };
-    
-    let html = '';
-    ['dao', 'thuan', 'nghich'].forEach(k => {
-        const val = scores[k] || 0;
-        const pct = Math.round(val * 100);
-        const cls = active === k ? 'active' : '';
-        html += `<div class="mode-chip ${k} ${cls}">
-            <div class="mode-name">${icons[k]} ${names[k]}</div>
-            <div class="mode-score">${pct}%</div>
-        </div>`;
-    });
-    row.innerHTML = html;
 }
 
 function renderLayers(meta) {
@@ -1130,7 +1022,7 @@ function renderLayers(meta) {
     let html = '';
     meta.layers.forEach(l => {
         const cls = l.pred === 'Tài' ? 'tai' : 'xiu';
-        const shortName = l.name.replace(/_/g, ' ').toUpperCase();
+        const shortName = l.name.replace('_md5','').replace('_',' ').toUpperCase();
         html += `<span class="layer-chip ${cls}">${shortName} → ${l.pred} (w${l.w})</span>`;
     });
     chips.innerHTML = html;
@@ -1160,7 +1052,7 @@ function renderTable(rows, stats) {
         if (row.prediction === "Xỉu") predHtml = `<span class="badge badge-xiu">XỈU</span>`;
         let recBadge = "";
         if (row.recovery_flipped) {
-            recBadge = `<span class="recovery-badge" title="Auto-flip">⚡</span>`;
+            recBadge = `<span class="recovery-badge" title="Auto-flip do thua ${row.loss_streak || 0} lần">⚡</span>`;
         }
         let confHtml = "";
         if (row.conf && row.prediction !== "-") {
@@ -1199,7 +1091,7 @@ function renderTable(rows, stats) {
 
 async function confirmReset() {
     Swal.fire({
-        title: 'Xác nhận Reset?', text: "Toàn bộ lịch sử hiển thị sẽ bị xoá!",
+        title: 'Xác nhận Reset?', text: "Toàn bộ lịch sử hiển thị sẽ bị xoá và bắt đầu lại từ đầu!",
         icon: 'warning', background: '#1e293b', color: '#f8fafc',
         showCancelButton: true, confirmButtonColor: '#0ea5e9', cancelButtonColor: '#64748b',
         confirmButtonText: 'Đồng ý', cancelButtonText: 'Hủy'
@@ -1211,7 +1103,7 @@ async function confirmReset() {
                 const res = await fetch('/api/reset', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
                 const data = await res.json();
                 if (data.status === 'success') {
-                    Swal.fire({ title: 'Thành công!', text: 'Đã reset.', icon: 'success', background: '#1e293b', color: '#f8fafc', confirmButtonColor: '#0ea5e9' });
+                    Swal.fire({ title: 'Thành công!', text: 'Đã xoá lịch sử và bắt đầu lại.', icon: 'success', background: '#1e293b', color: '#f8fafc', confirmButtonColor: '#0ea5e9' });
                     isResetting = false; fetchData();
                 } else { throw new Error(data.message); }
             } catch (error) {
@@ -1258,6 +1150,7 @@ def history():
             return jsonify({'rows': [], 'stats': {'total': 0, 'correct': 0}})
 
         loss_streak = compute_loss_streak(valid)
+
         out = []
         correct_count = 0
         total_past = 0
@@ -1266,7 +1159,7 @@ def history():
         history_for_next = [v['result'] for v in valid][::-1]
         dice_sums_next = _parse_dice_history(valid[::-1])
 
-        base_pred, base_conf, meta = lc79_random5_predict(history_for_next, dice_sums_next)
+        base_pred, base_conf, meta = lc79_predict(history_for_next, dice_sums_next)
         next_pred, next_conf, flipped, reason = apply_recovery(
             base_pred, base_conf, loss_streak, history_for_next
         )
@@ -1306,7 +1199,7 @@ def history():
             'recovery_active': flipped,
             'recovery_reason': reason,
             'base_prediction': base_pred,
-            'algorithm': 'LC79_RANDOM5',
+            'algorithm': 'LC79_MD5_PRO',
             'meta': meta,
         })
     except Exception as e:
@@ -1328,30 +1221,26 @@ def predict():
         dice_sums = _parse_dice_history(valid[::-1])
 
         loss_streak = compute_loss_streak(valid)
-        base_pred, base_conf, meta = lc79_random5_predict(results, dice_sums)
+        base_pred, base_conf, meta = lc79_predict(results, dice_sums)
         pred, conf, flipped, reason = apply_recovery(
             base_pred, base_conf, loss_streak, results
         )
 
-        # Lấy phân tích mode 5 phiên
-        five_analysis = analyze_5session_mode(results)
-
         return jsonify({
-            'algorithm': 'LC79_RANDOM5',
+            'algorithm': 'LC79_MD5_PRO',
             'last_phien': valid[-1]['phien'],
             'next_phien': valid[-1]['phien'] + 1,
             'last_result': valid[-1]['result'],
             'last_dice': valid[-1]['dice'],
-            'last_5': results[:5],
             'prediction': pred,
             'confidence': conf,
             'base_prediction': base_pred,
             'base_confidence': base_conf,
-            'five_session_mode': five_analysis,
             'recovery_flipped': flipped,
             'recovery_reason': reason,
             'loss_streak': loss_streak,
             'total_sessions': len(valid),
+            'last_5': results[:5],
             'meta': meta,
             'timestamp': datetime.now().isoformat()
         })
@@ -1375,7 +1264,7 @@ def betvipmd5():
         dice_sums = _parse_dice_history(valid[::-1])
 
         loss_streak = compute_loss_streak(valid)
-        base_pred, base_conf, meta = lc79_random5_predict(results, dice_sums)
+        base_pred, base_conf, meta = lc79_predict(results, dice_sums)
         pred, conf, flipped, reason = apply_recovery(
             base_pred, base_conf, loss_streak, results
         )
@@ -1391,22 +1280,15 @@ def betvipmd5():
         lich_su = "-" + "-".join(str(g) for g in groups[:4])
 
         next_phien = last['phien'] + 1
-        five_analysis = analyze_5session_mode(results)
-
-        mode_str = "?"
-        if five_analysis:
-            mode_str = five_analysis.get('mode', '?').upper()
 
         return jsonify({
             'id': '@cskhleminh',
-            'algorithm': 'LC79_RANDOM5',
+            'algorithm': 'LC79_HU',
             'phien': str(next_phien),
             'ket_qua': ket_qua_str,
             'du_doan': pred,
             'do_tin_cay': conf_str,
             'lich_su': lich_su,
-            'mode_5phien': mode_str,
-            'last_5': results[:5],
             'base_du_doan': base_pred if flipped else None,
             'auto_flip': flipped,
             'chuoi_thua': loss_streak,
@@ -1434,10 +1316,10 @@ def reset_api():
                     'status': 'success',
                     'reset_to': RESET_ID,
                     'bootstrap': True,
-                    'algorithm': 'LC79_RANDOM5',
-                    'message': 'Đã reset'
+                    'algorithm': 'LC79_MD5_PRO',
+                    'message': 'Đã reset - sẵn sàng dự đoán ngay phiên kế tiếp'
                 })
-        return jsonify({'status': 'error', 'message': 'Lỗi mạng'}), 400
+        return jsonify({'status': 'error', 'message': 'Lỗi mạng, không thể xác nhận mốc Reset'}), 400
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
