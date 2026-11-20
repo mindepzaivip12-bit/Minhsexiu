@@ -24,22 +24,30 @@ FETCH_RETRY = 2
 FETCH_TIMEOUT = 6
 
 # =====================================================================
-# CẤU HÌNH THUẬT TOÁN LC79 MD5 PRO (GIỮ NGUYÊN)
+# CẤU HÌNH THUẬT TOÁN LC79 MD5 PRO v2 (NÂNG CẤP)
 # =====================================================================
 WINDOW_SIZE = 5
 FINGERPRINT_MIN_MATCH = 3
 FINGERPRINT_STRONG = 0.72
-TRANSITION_MIN_SAMPLES = 8
+TRANSITION_MIN_SAMPLES = 6
 MOMENTUM_MIN_STREAK = 3
 ENTROPY_HIGH = 0.98
 ENTROPY_LOW = 0.55
 
-PATTERN_MIN_OCCURRENCES = 4
+PATTERN_MIN_OCCURRENCES = 3
 BAYES_PRIOR_ALPHA = 1.0
 MARKOV_ORDER = 2
 DRIFT_WINDOW = 30
 CONFIDENCE_FLOOR = 50
 CONFIDENCE_CEIL = 95
+
+FUZZY_MATCH_RATIO = 0.75
+CLUSTER_MIN_SAMPLES = 4
+CYCLE_MIN_PERIOD = 4
+CYCLE_MAX_PERIOD = 12
+CYCLE_MIN_CONFIDENCE = 0.65
+MULTI_WINDOW_LIST = (5, 8, 12, 20)
+DRIFT_ALPHA = 0.7
 
 
 # =====================================================================
@@ -92,8 +100,24 @@ def _safe_div(a, b, default=0.5):
     return a / b if b > 0 else default
 
 
+def _hamming(a, b):
+    if len(a) != len(b):
+        n = min(len(a), len(b))
+        a, b = a[:n], b[:n]
+    return sum(1 for x, y in zip(a, b) if x != y)
+
+
+def _weighted_count(seq, base_pred, decay=0.9):
+    w = 0.0
+    for i, v in enumerate(seq):
+        weight = decay ** i
+        if v == base_pred:
+            w += weight
+    return w
+
+
 # =====================================================================
-# TẦNG 1: MD5 FINGERPRINT MATCHING
+# TẦNG 1: MD5 FINGERPRINT (FUZZY + MULTI-WINDOW)
 # =====================================================================
 def lc79_fingerprint(results):
     if len(results) < 10:
@@ -102,63 +126,78 @@ def lc79_fingerprint(results):
     bits = _to_bits(results)
     best = None
 
-    for ws in (6, 5, 4, 3):
+    for ws in (7, 6, 5, 4, 3):
         if len(bits) < ws + 5:
             continue
         cur_fp = bits[:ws]
-        tai_next = xiu_next = 0
-        total = 0
+        tai_next = xiu_next = 0.0
+        total = 0.0
+        fuzzy_hits = []
 
         for i in range(1, len(bits) - ws):
-            if bits[i:i + ws] == cur_fp:
+            segment = bits[i:i + ws]
+            if segment == cur_fp:
                 nxt = bits[i - 1]
                 if nxt == "1":
                     tai_next += 1
                 else:
                     xiu_next += 1
                 total += 1
+            else:
+                ham = _hamming(segment, cur_fp)
+                similarity = 1.0 - ham / ws
+                if similarity >= FUZZY_MATCH_RATIO:
+                    weight = similarity
+                    nxt = bits[i - 1]
+                    if nxt == "1":
+                        tai_next += weight
+                    else:
+                        xiu_next += weight
+                    total += weight
+                    fuzzy_hits.append(similarity)
 
         if total < FINGERPRINT_MIN_MATCH:
             continue
 
         p_tai = tai_next / total
         ratio = max(p_tai, 1 - p_tai)
-        if ratio < 0.62:
+        if ratio < 0.60:
             continue
 
-        score = ratio * math.log2(total + 1)
+        fuzzy_bonus = 1.0 + (len(fuzzy_hits) / max(total, 1)) * 0.3
+        score = ratio * math.log2(total + 1) * (ws / 5.0) * fuzzy_bonus
+
         if best is None or score > best['score']:
             pred = "Tài" if p_tai >= 0.5 else "Xỉu"
             best = {
-                'pred': pred,
-                'ratio': ratio,
-                'samples': total,
-                'window': ws,
-                'score': score,
-                'tai_next': tai_next,
-                'xiu_next': xiu_next,
+                'pred': pred, 'ratio': ratio, 'samples': total,
+                'window': ws, 'score': score,
+                'tai_next': tai_next, 'xiu_next': xiu_next,
+                'fuzzy_count': len(fuzzy_hits),
+                'exact_count': int(total - len(fuzzy_hits)),
             }
 
     if not best:
         return None
 
     sample_bonus = min(7, int(math.log2(best['samples'] + 1) * 2.5))
-    window_bonus = 2 if best['window'] >= 5 else 0
-    weight = 11 + sample_bonus + window_bonus + int((best['ratio'] - 0.5) * 30)
-    weight = max(11, min(26, weight))
+    window_bonus = min(3, max(0, best['window'] - 4))
+    fuzzy_bonus = min(3, best['fuzzy_count'] // 3)
+    weight = 11 + sample_bonus + window_bonus + fuzzy_bonus + int((best['ratio'] - 0.5) * 30)
+    weight = max(11, min(28, weight))
 
     return (best['pred'], weight, {
         "fp": _md5(bits[:best['window']])[:8],
-        "samples": best['samples'],
+        "samples": round(best['samples'], 2),
         "ratio": round(best['ratio'], 3),
         "window": best['window'],
-        "tai_next": best['tai_next'],
-        "xiu_next": best['xiu_next'],
+        "exact": best['exact_count'],
+        "fuzzy": best['fuzzy_count'],
     })
 
 
 # =====================================================================
-# TẦNG 2: MD5 TRANSITION MATRIX
+# TẦNG 2: MD5 TRANSITION (ORDER 2-5)
 # =====================================================================
 def lc79_transition_md5(results):
     if len(results) < 20:
@@ -167,7 +206,7 @@ def lc79_transition_md5(results):
     bits = _to_bits(results)
     signals = []
 
-    for order in (2, 3, 4):
+    for order in (2, 3, 4, 5):
         if len(bits) < order + 10:
             continue
         cur_key = _md5(bits[:order])
@@ -192,9 +231,7 @@ def lc79_transition_md5(results):
 
         signals.append({
             'pred': "Tài" if p_tai >= 0.5 else "Xỉu",
-            'ratio': ratio,
-            'samples': tot,
-            'order': order,
+            'ratio': ratio, 'samples': tot, 'order': order,
         })
 
     if not signals:
@@ -202,7 +239,7 @@ def lc79_transition_md5(results):
 
     st = sx = 0.0
     for s in signals:
-        w = s['ratio'] * math.log2(s['samples'] + 1) * s['order']
+        w = s['ratio'] * math.log2(s['samples'] + 1) * (s['order'] ** 0.5)
         if s['pred'] == "Tài":
             st += w
         else:
@@ -213,11 +250,11 @@ def lc79_transition_md5(results):
 
     pred = "Tài" if st > sx else "Xỉu"
     ratio = max(st, sx) / (st + sx)
-    if ratio < 0.6:
+    if ratio < 0.58:
         return None
 
-    weight = 9 + int((ratio - 0.6) * 40) + len(signals) * 2
-    weight = max(9, min(22, weight))
+    weight = 9 + int((ratio - 0.6) * 45) + len(signals) * 2
+    weight = max(9, min(24, weight))
 
     return (pred, weight, {
         "samples": sum(s['samples'] for s in signals),
@@ -228,7 +265,7 @@ def lc79_transition_md5(results):
 
 
 # =====================================================================
-# TẦNG 3: MOMENTUM + ENTROPY
+# TẦNG 3: MOMENTUM + ENTROPY (WEIGHTED)
 # =====================================================================
 def lc79_momentum_entropy(results):
     if len(results) < 10:
@@ -253,8 +290,7 @@ def lc79_momentum_entropy(results):
         if all(p[0] == p[1] for p in pairs):
             pair_vals = [p[0] for p in pairs]
             if all(pair_vals[i] != pair_vals[i + 1] for i in range(len(pair_vals) - 1)):
-                next_pair_val = _opp(pair_vals[-1])
-                return (next_pair_val, 12, {"type": "alt_2_2", "entropy": round(e, 3)})
+                return (_opp(pair_vals[-1]), 12, {"type": "alt_2_2", "entropy": round(e, 3)})
 
     if len(results) >= 9:
         triples = [(results[i], results[i + 1], results[i + 2]) for i in range(0, 9, 3)]
@@ -263,14 +299,29 @@ def lc79_momentum_entropy(results):
             if all(triple_vals[i] != triple_vals[i + 1] for i in range(len(triple_vals) - 1)):
                 return (_opp(triple_vals[-1]), 12, {"type": "alt_3_3", "entropy": round(e, 3)})
 
-    if MOMENTUM_MIN_STREAK <= streak <= 7:
-        ratio = results[:10].count(results[0]) / 10
-        if ratio >= 0.65:
-            w = 13 if e < 0.85 else 10
-            return (results[0], w, {"type": "momentum_hold", "streak": streak, "ratio": round(ratio, 3), "entropy": round(e, 3)})
-        if ratio <= 0.35:
-            w = 13 if e < 0.85 else 10
-            return (_opp(results[0]), w, {"type": "momentum_break", "streak": streak, "ratio": round(ratio, 3), "entropy": round(e, 3)})
+    if MOMENTUM_MIN_STREAK <= streak <= 8:
+        window = results[:12]
+        w_tai = _weighted_count(window, "Tài", decay=0.85)
+        w_xiu = _weighted_count(window, "Xỉu", decay=0.85)
+        total_w = w_tai + w_xiu
+        if total_w > 0:
+            p_tai = w_tai / total_w
+            p_xiu = w_xiu / total_w
+            dominant = "Tài" if p_tai > p_xiu else "Xỉu"
+            ratio = max(p_tai, p_xiu)
+
+            if results[0] == dominant and ratio >= 0.60:
+                w = 13 if e < 0.85 else 10
+                return (dominant, w, {
+                    "type": "momentum_hold", "streak": streak,
+                    "ratio": round(ratio, 3), "entropy": round(e, 3),
+                })
+            if results[0] != dominant and ratio >= 0.60:
+                w = 13 if e < 0.85 else 10
+                return (dominant, w, {
+                    "type": "momentum_break", "streak": streak,
+                    "ratio": round(ratio, 3), "entropy": round(e, 3),
+                })
 
     if e >= ENTROPY_HIGH:
         return (_opp(results[0]), 9, {"type": "entropy_balanced_reverse", "entropy": round(e, 3)})
@@ -287,7 +338,7 @@ def lc79_momentum_entropy(results):
 
 
 # =====================================================================
-# TẦNG 4: PATTERN N-GRAM
+# TẦNG 4: PATTERN N-GRAM (FORWARD + BACKWARD + SKIPGRAM)
 # =====================================================================
 def lc79_pattern_ngram(results):
     if len(results) < 20:
@@ -296,7 +347,8 @@ def lc79_pattern_ngram(results):
     bits = _to_bits(results)
     signals = []
 
-    for order in (3, 4, 5):
+    # Forward
+    for order in (3, 4, 5, 6):
         if len(bits) < order + 10:
             continue
         cur = bits[:order]
@@ -310,24 +362,72 @@ def lc79_pattern_ngram(results):
         total = tai_next + xiu_next
         if total < PATTERN_MIN_OCCURRENCES:
             continue
+        p_tai = (tai_next + BAYES_PRIOR_ALPHA) / (total + 2 * BAYES_PRIOR_ALPHA)
+        ratio = max(p_tai, 1 - p_tai)
+        if ratio < 0.62:
+            continue
+        signals.append({
+            'pred': "Tài" if p_tai >= 0.5 else "Xỉu",
+            'ratio': ratio, 'samples': total, 'order': order, 'type': 'forward',
+        })
 
+    # Backward
+    for order in (3, 4, 5):
+        if len(bits) < order + 10:
+            continue
+        cur = bits[:order][::-1]
+        tai_next = xiu_next = 0
+        for i in range(1, len(bits) - order):
+            if bits[i:i + order][::-1] == cur:
+                if bits[i - 1] == "1":
+                    tai_next += 1
+                else:
+                    xiu_next += 1
+        total = tai_next + xiu_next
+        if total < PATTERN_MIN_OCCURRENCES:
+            continue
         p_tai = (tai_next + BAYES_PRIOR_ALPHA) / (total + 2 * BAYES_PRIOR_ALPHA)
         ratio = max(p_tai, 1 - p_tai)
         if ratio < 0.65:
             continue
         signals.append({
             'pred': "Tài" if p_tai >= 0.5 else "Xỉu",
-            'ratio': ratio,
-            'samples': total,
-            'order': order,
+            'ratio': ratio, 'samples': total, 'order': order, 'type': 'backward',
         })
+
+    # Skip-gram
+    for order in (4, 5):
+        if len(bits) < order + 12:
+            continue
+        for skip_pos in range(1, order - 1):
+            pattern = bits[:skip_pos] + bits[skip_pos + 1:order]
+            tai_next = xiu_next = 0
+            for i in range(1, len(bits) - order):
+                seg = bits[i:i + order]
+                if seg[:skip_pos] + seg[skip_pos + 1:] == pattern:
+                    if bits[i - 1] == "1":
+                        tai_next += 1
+                    else:
+                        xiu_next += 1
+            total = tai_next + xiu_next
+            if total < PATTERN_MIN_OCCURRENCES + 1:
+                continue
+            p_tai = (tai_next + BAYES_PRIOR_ALPHA) / (total + 2 * BAYES_PRIOR_ALPHA)
+            ratio = max(p_tai, 1 - p_tai)
+            if ratio < 0.68:
+                continue
+            signals.append({
+                'pred': "Tài" if p_tai >= 0.5 else "Xỉu",
+                'ratio': ratio, 'samples': total, 'order': order, 'type': 'skipgram',
+            })
 
     if not signals:
         return None
 
     st = sx = 0.0
     for s in signals:
-        w = s['ratio'] * math.log2(s['samples'] + 1) * (s['order'] - 1)
+        type_bonus = {'forward': 1.0, 'backward': 1.3, 'skipgram': 1.4}.get(s['type'], 1.0)
+        w = s['ratio'] * math.log2(s['samples'] + 1) * (s['order'] - 1) * type_bonus
         if s['pred'] == "Tài":
             st += w
         else:
@@ -338,19 +438,19 @@ def lc79_pattern_ngram(results):
 
     pred = "Tài" if st > sx else "Xỉu"
     ratio = max(st, sx) / (st + sx)
-    weight = 10 + int((ratio - 0.6) * 35) + len(signals) * 2
-    weight = max(10, min(23, weight))
+    weight = 10 + int((ratio - 0.6) * 40) + len(signals) * 2
+    weight = max(10, min(25, weight))
 
     return (pred, weight, {
         "ratio": round(ratio, 3),
         "n_signals": len(signals),
-        "orders": [s['order'] for s in signals],
+        "types": list(set(s['type'] for s in signals)),
         "total_samples": sum(s['samples'] for s in signals),
     })
 
 
 # =====================================================================
-# TẦNG 5: MARKOV CHAIN BẬC 2
+# TẦNG 5: MARKOV (ORDER 2+3 ENSEMBLE)
 # =====================================================================
 def lc79_markov2(results):
     if len(results) < 25:
@@ -360,35 +460,56 @@ def lc79_markov2(results):
     if len(bits) < 3:
         return None
 
-    cur_state = bits[:2]
-    tr = defaultdict(lambda: {"Tài": 0, "Xỉu": 0})
-    for i in range(1, len(bits) - 2):
-        state = bits[i:i + 2]
-        nxt = bits[i - 1]
-        tr[state][("Tài" if nxt == "1" else "Xỉu")] += 1
+    signals = []
+    for order in (2, 3):
+        if len(bits) < order + 10:
+            continue
+        cur_state = bits[:order]
+        tr = defaultdict(lambda: {"Tài": 0, "Xỉu": 0})
+        for i in range(1, len(bits) - order):
+            state = bits[i:i + order]
+            nxt = bits[i - 1]
+            tr[state][("Tài" if nxt == "1" else "Xỉu")] += 1
 
-    d = tr.get(cur_state)
-    if not d:
-        return None
-    tot = d["Tài"] + d["Xỉu"]
-    if tot < 6:
+        d = tr.get(cur_state)
+        if not d:
+            continue
+        tot = d["Tài"] + d["Xỉu"]
+        if tot < 5:
+            continue
+
+        p_tai = (d["Tài"] + BAYES_PRIOR_ALPHA) / (tot + 2 * BAYES_PRIOR_ALPHA)
+        ratio = max(p_tai, 1 - p_tai)
+        if ratio < 0.6:
+            continue
+        signals.append({
+            'pred': "Tài" if p_tai >= 0.5 else "Xỉu",
+            'ratio': ratio, 'samples': tot, 'order': order,
+        })
+
+    if not signals:
         return None
 
-    p_tai = (d["Tài"] + BAYES_PRIOR_ALPHA) / (tot + 2 * BAYES_PRIOR_ALPHA)
-    ratio = max(p_tai, 1 - p_tai)
-    if ratio < 0.6:
+    st = sx = 0.0
+    for s in signals:
+        w = s['ratio'] * math.log2(s['samples'] + 1) * s['order']
+        if s['pred'] == "Tài":
+            st += w
+        else:
+            sx += w
+
+    if st == sx:
         return None
 
-    pred = "Tài" if p_tai >= 0.5 else "Xỉu"
-    weight = 8 + int((ratio - 0.55) * 35) + min(3, tot // 5)
-    weight = max(8, min(20, weight))
+    pred = "Tài" if st > sx else "Xỉu"
+    ratio = max(st, sx) / (st + sx)
+    weight = 8 + int((ratio - 0.55) * 40) + len(signals) * 2
+    weight = max(8, min(22, weight))
 
     return (pred, weight, {
-        "state": cur_state,
-        "samples": tot,
         "ratio": round(ratio, 3),
-        "tai_next": d["Tài"],
-        "xiu_next": d["Xỉu"],
+        "orders": [s['order'] for s in signals],
+        "samples": sum(s['samples'] for s in signals),
     })
 
 
@@ -422,9 +543,7 @@ def lc79_bayesian_recency(results):
     weight = max(7, min(18, weight))
 
     return (pred, weight, {
-        "p_tai": round(p_tai, 3),
-        "ratio": round(ratio, 3),
-        "window": n,
+        "p_tai": round(p_tai, 3), "ratio": round(ratio, 3), "window": n,
     })
 
 
@@ -454,8 +573,7 @@ def lc79_streak_pressure(results):
     if streak >= 5 and streak >= avg_group * 1.8:
         w = 10 + min(5, int(streak / 2))
         return (_opp(results[0]), w, {
-            "type": "streak_break",
-            "streak": streak,
+            "type": "streak_break", "streak": streak,
             "avg_group": round(avg_group, 2),
         })
 
@@ -508,7 +626,180 @@ def lc79_dice_analysis(dice_sums):
 
 
 # =====================================================================
-# TỔNG HỢP
+# TẦNG 9 MỚI: MD5 HASH CLUSTER
+# =====================================================================
+def lc79_md5_cluster(results):
+    if len(results) < 25:
+        return None
+
+    bits = _to_bits(results)
+    cur_prefix = _md5(bits[:5])[:3]
+
+    cluster = []
+    for i in range(1, len(bits) - 5):
+        h = _md5(bits[i:i + 5])[:3]
+        if h == cur_prefix:
+            cluster.append(bits[i - 1])
+
+    if len(cluster) < CLUSTER_MIN_SAMPLES:
+        return None
+
+    tai = cluster.count("1")
+    xiu = cluster.count("0")
+    total = len(cluster)
+    p_tai = (tai + BAYES_PRIOR_ALPHA) / (total + 2 * BAYES_PRIOR_ALPHA)
+    ratio = max(p_tai, 1 - p_tai)
+    if ratio < 0.65:
+        return None
+
+    pred = "Tài" if p_tai >= 0.5 else "Xỉu"
+    weight = 9 + int((ratio - 0.6) * 40) + min(3, total // 5)
+    weight = max(9, min(21, weight))
+
+    return (pred, weight, {
+        "cluster_prefix": cur_prefix,
+        "cluster_size": total,
+        "tai": tai, "xiu": xiu,
+        "ratio": round(ratio, 3),
+    })
+
+
+# =====================================================================
+# TẦNG 10 MỚI: CYCLE DETECTOR
+# =====================================================================
+def lc79_cycle_detector(results):
+    if len(results) < 24:
+        return None
+
+    best = None
+    for period in range(CYCLE_MIN_PERIOD, CYCLE_MAX_PERIOD + 1):
+        if len(results) < period * 2 + 2:
+            continue
+
+        matches = 0
+        checks = 0
+        for offset in range(1, period * 2 + 1):
+            if offset >= len(results) or period >= len(results):
+                continue
+            checks += 1
+            if results[offset - 1] == results[offset - 1 + period]:
+                matches += 1
+
+        if checks < period:
+            continue
+        confidence = matches / checks
+        if confidence < CYCLE_MIN_CONFIDENCE:
+            continue
+
+        if period < len(results):
+            pred = results[period - 1]
+            score = confidence * math.log2(checks + 1) / period
+            if best is None or score > best['score']:
+                best = {'pred': pred, 'period': period,
+                        'confidence': confidence, 'score': score}
+
+    if not best:
+        return None
+
+    weight = 8 + int(best['confidence'] * 15)
+    weight = max(8, min(20, weight))
+
+    return (best['pred'], weight, {
+        "type": "cycle",
+        "period": best['period'],
+        "confidence": round(best['confidence'], 3),
+    })
+
+
+# =====================================================================
+# TẦNG 11 MỚI: BAYESIAN DRIFT
+# =====================================================================
+def lc79_bayesian_drift(results):
+    if len(results) < 30:
+        return None
+
+    old_window = results[15:30]
+    new_window = results[:15]
+
+    old_tai_rate = old_window.count("Tài") / len(old_window)
+    new_tai_rate = new_window.count("Tài") / len(new_window)
+    drift = new_tai_rate - old_tai_rate
+
+    if abs(drift) < 0.25:
+        return None
+
+    if new_tai_rate > 0.65:
+        pred = "Tài"
+        strength = (new_tai_rate - 0.5) * 2
+    elif new_tai_rate < 0.35:
+        pred = "Xỉu"
+        strength = (0.5 - new_tai_rate) * 2
+    else:
+        return None
+
+    weight = 7 + int(strength * 8)
+    weight = max(7, min(15, weight))
+
+    return (pred, weight, {
+        "type": "drift",
+        "old_tai_rate": round(old_tai_rate, 3),
+        "new_tai_rate": round(new_tai_rate, 3),
+        "drift": round(drift, 3),
+    })
+
+
+# =====================================================================
+# TẦNG 12 MỚI: MULTI-WINDOW CONSENSUS
+# =====================================================================
+def lc79_multi_window_consensus(results):
+    if len(results) < 20:
+        return None
+
+    votes = []
+    for ws in MULTI_WINDOW_LIST:
+        if len(results) < ws:
+            continue
+        window = results[:ws]
+        tai = window.count("Tài")
+        p_tai = tai / ws
+
+        if ws <= 8:
+            if p_tai >= 0.65:
+                votes.append(("Tài", 1.0))
+            elif p_tai <= 0.35:
+                votes.append(("Xỉu", 1.0))
+        else:
+            if p_tai >= 0.70:
+                votes.append(("Xỉu", 0.8))
+            elif p_tai <= 0.30:
+                votes.append(("Tài", 0.8))
+
+    if len(votes) < 2:
+        return None
+
+    st = sum(w for p, w in votes if p == "Tài")
+    sx = sum(w for p, w in votes if p == "Xỉu")
+
+    if st == sx:
+        return None
+
+    pred = "Tài" if st > sx else "Xỉu"
+    ratio = max(st, sx) / (st + sx)
+    if ratio < 0.6:
+        return None
+
+    weight = 7 + int((ratio - 0.6) * 30) + len(votes) * 2
+    weight = max(7, min(18, weight))
+
+    return (pred, weight, {
+        "type": "multi_window",
+        "votes": [{"pred": p, "w": w} for p, w in votes],
+        "ratio": round(ratio, 3),
+    })
+
+
+# =====================================================================
+# TỔNG HỢP (12 TẦNG)
 # =====================================================================
 def lc79_predict(results, dice_sums=None):
     n = len(results)
@@ -541,38 +832,31 @@ def lc79_predict(results, dice_sums=None):
     layers = []
     layer_names = []
 
-    r = lc79_fingerprint(results)
-    if r:
-        layers.append(r); layer_names.append("fingerprint_md5")
+    layer_funcs = [
+        ("fingerprint_md5",  lc79_fingerprint),
+        ("transition_md5",   lc79_transition_md5),
+        ("momentum_entropy", lc79_momentum_entropy),
+        ("pattern_ngram",    lc79_pattern_ngram),
+        ("markov2",          lc79_markov2),
+        ("bayesian_recency", lc79_bayesian_recency),
+        ("streak_pressure",  lc79_streak_pressure),
+        ("md5_cluster",      lc79_md5_cluster),
+        ("cycle_detector",   lc79_cycle_detector),
+        ("bayesian_drift",   lc79_bayesian_drift),
+        ("multi_window",     lc79_multi_window_consensus),
+    ]
 
-    r = lc79_transition_md5(results)
-    if r:
-        layers.append(r); layer_names.append("transition_md5")
-
-    r = lc79_momentum_entropy(results)
-    if r:
-        layers.append(r); layer_names.append("momentum_entropy")
-
-    r = lc79_pattern_ngram(results)
-    if r:
-        layers.append(r); layer_names.append("pattern_ngram")
-
-    r = lc79_markov2(results)
-    if r:
-        layers.append(r); layer_names.append("markov2")
-
-    r = lc79_bayesian_recency(results)
-    if r:
-        layers.append(r); layer_names.append("bayesian_recency")
-
-    r = lc79_streak_pressure(results)
-    if r:
-        layers.append(r); layer_names.append("streak_pressure")
+    for name, fn in layer_funcs:
+        r = fn(results)
+        if r:
+            layers.append(r)
+            layer_names.append(name)
 
     if dice_sums:
         r = lc79_dice_analysis(dice_sums)
         if r:
-            layers.append(r); layer_names.append("dice_bias")
+            layers.append(r)
+            layer_names.append("dice_bias")
 
     if not layers:
         return _opp(results[0]), 54, {"mode": "fallback_alt"}
@@ -599,13 +883,13 @@ def lc79_predict(results, dice_sums=None):
     n_layers = len(layers)
 
     base_conf = 52
-    base_conf += int((ratio - 0.5) * 56)
+    base_conf += int((ratio - 0.5) * 60)
     if n_layers >= 2:
         agreement_pct = agree_layers / n_layers
-        base_conf += int(agreement_pct * 12)
+        base_conf += int(agreement_pct * 14)
         if agree_layers == n_layers and n_layers >= 3:
             base_conf += 4
-    base_conf += min(4, max(0, n_layers - 2))
+    base_conf += min(5, max(0, n_layers - 2))
 
     if n_layers == 1:
         base_conf -= 8
@@ -615,7 +899,7 @@ def lc79_predict(results, dice_sums=None):
     conf = max(CONFIDENCE_FLOOR, min(CONFIDENCE_CEIL, base_conf))
 
     meta = {
-        "mode": "lc79_md5_pro",
+        "mode": "lc79_md5_pro_v2",
         "n_layers": n_layers,
         "agree": agree_layers,
         "ratio": round(ratio, 3),
@@ -759,7 +1043,7 @@ def compute_loss_streak(valid, max_scan=25):
 
 
 # =====================================================================
-# HTML TEMPLATE — THÊM CỘT DỰ ĐOÁN / ĐÚNG-SAI / THỐNG KÊ
+# HTML TEMPLATE — GIỮ NGUYÊN: 4 CỘT + THỐNG KÊ
 # =====================================================================
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -904,7 +1188,6 @@ function renderTable(rows) {
     }
     let html = '';
     rows.forEach((row) => {
-        // Kết quả thực
         let resultHtml = `<span class="badge badge-tai">TÀI</span>`;
         if (row.result === "Xỉu") resultHtml = `<span class="badge badge-xiu">XỈU</span>`;
         let diceDisplay = "";
@@ -915,7 +1198,6 @@ function renderTable(rows) {
         }
         let resultFull = `<div style="display:flex; flex-direction:column; align-items:center;">${resultHtml}${diceDisplay}</div>`;
 
-        // Dự đoán
         let predHtml = `<span class="badge badge-none">—</span>`;
         let confHtml = "";
         if (row.prediction === "Tài") {
@@ -927,7 +1209,6 @@ function renderTable(rows) {
         }
         let predFull = `<div style="display:flex; flex-direction:column; align-items:center;">${predHtml}${confHtml}</div>`;
 
-        // Nhận định đúng/sai
         let judgeHtml = `<span class="badge badge-none">—</span>`;
         if (row.is_correct === true) judgeHtml = `<span class="badge badge-win">✓ ĐÚNG</span>`;
         else if (row.is_correct === false) judgeHtml = `<span class="badge badge-lose">✗ SAI</span>`;
@@ -1053,7 +1334,7 @@ def predict():
         pred, conf, flipped, reason = apply_recovery(base_pred, base_conf, loss_streak, results)
 
         return jsonify({
-            'algorithm': 'LC79_MD5_PRO',
+            'algorithm': 'LC79_MD5_PRO_V2',
             'last_phien': valid[-1]['phien'],
             'next_phien': valid[-1]['phien'] + 1,
             'last_result': valid[-1]['result'],
@@ -1107,7 +1388,7 @@ def betvipmd5():
 
         return jsonify({
             'id': '@cskhleminh',
-            'algorithm': 'LC79_HU',
+            'algorithm': 'LC79_HU_V2',
             'phien': str(next_phien),
             'ket_qua': ket_qua_str,
             'du_doan': pred,
@@ -1140,7 +1421,7 @@ def reset_api():
                     'status': 'success',
                     'reset_to': RESET_ID,
                     'bootstrap': True,
-                    'algorithm': 'LC79_MD5_PRO',
+                    'algorithm': 'LC79_MD5_PRO_V2',
                     'message': 'Đã reset - sẵn sàng dự đoán ngay phiên kế tiếp'
                 })
         return jsonify({'status': 'error', 'message': 'Lỗi mạng, không thể xác nhận mốc Reset'}), 400
