@@ -12,7 +12,7 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)
 
-API_URL_MD5 ="https://wtxmd52.tele68.com/v1/txmd5/lite-sessions?cp=R&cl=R&pf=web&at=d35795e07a393f91815436933a4852df"
+API_URL_MD5 = "https://wtxmd52.tele68.com/v1/txmd5/lite-sessions?cp=R&cl=R&pf=web&at=d35795e07a393f91815436933a4852df"
 
 HISTORY_CACHE = {}
 PREDICTION_CACHE = {}
@@ -759,7 +759,7 @@ def compute_loss_streak(valid, max_scan=25):
 
 
 # =====================================================================
-# HTML TEMPLATE — GIAO DIỆN ĐƠN GIẢN (ẨN THUẬT TOÁN)
+# HTML TEMPLATE — THÊM CỘT DỰ ĐOÁN / ĐÚNG-SAI / THỐNG KÊ
 # =====================================================================
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -776,6 +776,8 @@ HTML_TEMPLATE = """
         --text-muted: #94a3b8; --border-color: #334155;
         --tai-color: #38bdf8; --tai-bg: rgba(56, 189, 248, 0.15);
         --xiu-color: #f472b6; --xiu-bg: rgba(244, 114, 182, 0.15);
+        --win-color: #22c55e; --win-bg: rgba(34, 197, 94, 0.15);
+        --lose-color: #ef4444; --lose-bg: rgba(239, 68, 68, 0.15);
     }
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; }
     body { background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); color: var(--text-main); min-height: 100vh; padding-bottom: 40px; }
@@ -787,21 +789,38 @@ HTML_TEMPLATE = """
     .btn-refresh:hover { background: var(--border-color); transform: rotate(180deg); }
     .btn-reset { background: rgba(248, 113, 113, 0.2); color: #f87171; border: 1px solid #f87171; padding: 8px 16px; border-radius: 10px; font-weight: 700; font-size: 13px; cursor: pointer; transition: 0.2s; }
     .btn-reset:hover { background: #f87171; color: #fff; box-shadow: 0 0 15px rgba(248, 113, 113, 0.4); }
-    .table-wrapper { max-width: 800px; margin: 24px auto; padding: 0 16px; }
-    .table-container { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); max-height: 80vh; overflow-y: auto; }
+
+    .stats-bar { max-width: 800px; margin: 18px auto 0; padding: 0 16px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+    .stat-card { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 12px; padding: 12px; text-align: center; }
+    .stat-label { font-size: 11px; color: var(--text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+    .stat-value { font-size: 22px; font-weight: 800; margin-top: 4px; }
+    .stat-value.win { color: var(--win-color); }
+    .stat-value.lose { color: var(--lose-color); }
+    .stat-value.rate { color: #38bdf8; }
+    .stat-value.total { color: var(--text-main); }
+
+    .table-wrapper { max-width: 800px; margin: 18px auto; padding: 0 16px; }
+    .table-container { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); max-height: 72vh; overflow-y: auto; }
     .data-table { width: 100%; border-collapse: separate; border-spacing: 0; }
-    .data-table th { background: #111827; color: var(--text-muted); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; padding: 16px 12px; text-align: center; border-bottom: 1px solid var(--border-color); position: sticky; top: 0; z-index: 10; }
-    .data-table td { padding: 14px 12px; text-align: center; border-bottom: 1px solid var(--border-color); font-size: 14px; font-weight: 600; }
+    .data-table th { background: #111827; color: var(--text-muted); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; padding: 14px 10px; text-align: center; border-bottom: 1px solid var(--border-color); position: sticky; top: 0; z-index: 10; }
+    .data-table td { padding: 12px 10px; text-align: center; border-bottom: 1px solid var(--border-color); font-size: 14px; font-weight: 600; }
     .data-table tr:last-child td { border-bottom: none; }
     .data-table tr:hover { background: rgba(255, 255, 255, 0.02); }
-    .badge { display: inline-block; padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: 700; min-width: 70px; text-align: center; }
-    .badge-tai { background: var(--tai-bg); color: var(--tai-color); border: 1px solid rgba(56, 189, 248, 0.3); box-shadow: 0 0 10px rgba(56, 189, 248, 0.2); }
-    .badge-xiu { background: var(--xiu-bg); color: var(--xiu-color); border: 1px solid rgba(244, 114, 182, 0.3); box-shadow: 0 0 10px rgba(244, 114, 182, 0.2); }
+    .badge { display: inline-block; padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: 700; min-width: 66px; text-align: center; }
+    .badge-tai { background: var(--tai-bg); color: var(--tai-color); border: 1px solid rgba(56, 189, 248, 0.3); }
+    .badge-xiu { background: var(--xiu-bg); color: var(--xiu-color); border: 1px solid rgba(244, 114, 182, 0.3); }
+    .badge-win { background: var(--win-bg); color: var(--win-color); border: 1px solid rgba(34, 197, 94, 0.35); }
+    .badge-lose { background: var(--lose-bg); color: var(--lose-color); border: 1px solid rgba(239, 68, 68, 0.35); }
+    .badge-none { background: rgba(148, 163, 184, 0.12); color: var(--text-muted); border: 1px solid rgba(148, 163, 184, 0.25); }
     .dice-text { font-size: 11px; color: var(--text-muted); display: block; margin-top: 4px; font-weight: 500; }
+    .conf-text { font-size: 11px; color: var(--text-muted); display: block; margin-top: 2px; font-weight: 500; }
     .loading { text-align: center; padding: 40px; color: var(--tai-color); font-weight: 600; }
-    @media (max-width: 500px) {
-        .data-table th, .data-table td { padding: 10px 6px; font-size: 12px; }
-        .badge { padding: 4px 8px; font-size: 11px; min-width: 50px; }
+
+    @media (max-width: 600px) {
+        .stats-bar { grid-template-columns: repeat(2, 1fr); }
+        .stat-value { font-size: 18px; }
+        .data-table th, .data-table td { padding: 9px 4px; font-size: 11px; }
+        .badge { padding: 4px 7px; font-size: 10px; min-width: 44px; }
         .header-title { font-size: 18px; }
         .time-update { display: none; }
     }
@@ -818,17 +837,38 @@ HTML_TEMPLATE = """
     </div>
 </div>
 
+<div class="stats-bar">
+    <div class="stat-card">
+        <div class="stat-label">Tổng phiên</div>
+        <div class="stat-value total" id="stat-total">0</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Thắng</div>
+        <div class="stat-value win" id="stat-win">0</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Thua</div>
+        <div class="stat-value lose" id="stat-lose">0</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Tỷ lệ</div>
+        <div class="stat-value rate" id="stat-rate">0%</div>
+    </div>
+</div>
+
 <div class="table-wrapper">
     <div class="table-container">
         <table class="data-table">
             <thead>
                 <tr>
                     <th>Phiên</th>
+                    <th>Dự đoán</th>
                     <th>Kết quả</th>
+                    <th>Nhận định</th>
                 </tr>
             </thead>
             <tbody id="table-body">
-                <tr><td colspan="2" class="loading">Đang kết nối Server...</td></tr>
+                <tr><td colspan="4" class="loading">Đang kết nối Server...</td></tr>
             </tbody>
         </table>
     </div>
@@ -844,18 +884,27 @@ async function fetchData() {
         const data = await r.json();
         const now = new Date();
         document.getElementById('time-update').innerText = now.toLocaleTimeString('vi-VN');
+        renderStats(data.stats || {});
         renderTable(data.rows || []);
     } catch (e) { console.error("Lỗi tải dữ liệu:", e); }
+}
+
+function renderStats(stats) {
+    document.getElementById('stat-total').innerText = stats.total || 0;
+    document.getElementById('stat-win').innerText = stats.win || 0;
+    document.getElementById('stat-lose').innerText = stats.lose || 0;
+    document.getElementById('stat-rate').innerText = (stats.rate || 0) + '%';
 }
 
 function renderTable(rows) {
     const tbody = document.getElementById('table-body');
     if (!rows.length) {
-        tbody.innerHTML = '<tr><td colspan="2" class="loading">Không có dữ liệu. Hãy đợi phiên mới.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="4" class="loading">Không có dữ liệu. Hãy đợi phiên mới.</td></tr>';
         return;
     }
     let html = '';
     rows.forEach((row) => {
+        // Kết quả thực
         let resultHtml = `<span class="badge badge-tai">TÀI</span>`;
         if (row.result === "Xỉu") resultHtml = `<span class="badge badge-xiu">XỈU</span>`;
         let diceDisplay = "";
@@ -865,7 +914,30 @@ function renderTable(rows) {
             diceDisplay = `<span class="dice-text">${row.dice} (${sum})</span>`;
         }
         let resultFull = `<div style="display:flex; flex-direction:column; align-items:center;">${resultHtml}${diceDisplay}</div>`;
-        html += `<tr><td>#${row.phien}</td><td>${resultFull}</td></tr>`;
+
+        // Dự đoán
+        let predHtml = `<span class="badge badge-none">—</span>`;
+        let confHtml = "";
+        if (row.prediction === "Tài") {
+            predHtml = `<span class="badge badge-tai">TÀI</span>`;
+            confHtml = `<span class="conf-text">${row.confidence}%</span>`;
+        } else if (row.prediction === "Xỉu") {
+            predHtml = `<span class="badge badge-xiu">XỈU</span>`;
+            confHtml = `<span class="conf-text">${row.confidence}%</span>`;
+        }
+        let predFull = `<div style="display:flex; flex-direction:column; align-items:center;">${predHtml}${confHtml}</div>`;
+
+        // Nhận định đúng/sai
+        let judgeHtml = `<span class="badge badge-none">—</span>`;
+        if (row.is_correct === true) judgeHtml = `<span class="badge badge-win">✓ ĐÚNG</span>`;
+        else if (row.is_correct === false) judgeHtml = `<span class="badge badge-lose">✗ SAI</span>`;
+
+        html += `<tr>
+            <td>#${row.phien}</td>
+            <td>${predFull}</td>
+            <td>${resultFull}</td>
+            <td>${judgeHtml}</td>
+        </tr>`;
     });
     tbody.innerHTML = html;
 }
@@ -928,21 +1000,36 @@ def history():
             return jsonify({'error': 'Không thể kết nối API'}), 500
         valid = _sync_history(raw_rows)
         if not valid:
-            return jsonify({'rows': []})
+            return jsonify({'rows': [], 'stats': {'total': 0, 'win': 0, 'lose': 0, 'rate': 0}})
 
         out = []
+        win = lose = 0
         scan_limit = min(len(valid), 200)
         for i in range(len(valid) - 1, len(valid) - scan_limit - 1, -1):
             if i < 0:
                 break
             s = valid[i]
+            pred, conf, is_correct = get_prediction_for(valid, i)
+
+            if is_correct is True:
+                win += 1
+            elif is_correct is False:
+                lose += 1
+
             out.append({
                 'phien': s['phien'],
                 'result': s['result'],
                 'dice': s['dice'],
+                'prediction': pred if pred != "-" else None,
+                'confidence': conf,
+                'is_correct': is_correct,
             })
 
-        return jsonify({'rows': out})
+        total = win + lose
+        rate = round(win / total * 100, 1) if total > 0 else 0
+        stats = {'total': total, 'win': win, 'lose': lose, 'rate': rate}
+
+        return jsonify({'rows': out, 'stats': stats})
     except Exception as e:
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
