@@ -24,7 +24,7 @@ FETCH_RETRY = 2
 FETCH_TIMEOUT = 6
 
 # =====================================================================
-# CẤU HÌNH THUẬT TOÁN LC79 MD5 PRO
+# CẤU HÌNH THUẬT TOÁN LC79 MD5 PRO (GIỮ NGUYÊN)
 # =====================================================================
 WINDOW_SIZE = 5
 FINGERPRINT_MIN_MATCH = 3
@@ -34,11 +34,10 @@ MOMENTUM_MIN_STREAK = 3
 ENTROPY_HIGH = 0.98
 ENTROPY_LOW = 0.55
 
-# Cấu hình nâng cấp
-PATTERN_MIN_OCCURRENCES = 4       # pattern 4-gram cần >=4 lần
-BAYES_PRIOR_ALPHA = 1.0           # Laplace smoothing
-MARKOV_ORDER = 2                  # Markov bậc 2
-DRIFT_WINDOW = 30                 # cửa sổ phát hiện drift
+PATTERN_MIN_OCCURRENCES = 4
+BAYES_PRIOR_ALPHA = 1.0
+MARKOV_ORDER = 2
+DRIFT_WINDOW = 30
 CONFIDENCE_FLOOR = 50
 CONFIDENCE_CEIL = 95
 
@@ -94,12 +93,9 @@ def _safe_div(a, b, default=0.5):
 
 
 # =====================================================================
-# TẦNG 1: MD5 FINGERPRINT MATCHING (NÂNG CẤP)
+# TẦNG 1: MD5 FINGERPRINT MATCHING
 # =====================================================================
 def lc79_fingerprint(results):
-    """
-    Nâng cấp: Thử nhiều window size (3,4,5,6) và chọn cái tốt nhất.
-    """
     if len(results) < 10:
         return None
 
@@ -130,7 +126,6 @@ def lc79_fingerprint(results):
         if ratio < 0.62:
             continue
 
-        # Score = ratio * log(samples) để cân bằng giữa độ mạnh và số mẫu
         score = ratio * math.log2(total + 1)
         if best is None or score > best['score']:
             pred = "Tài" if p_tai >= 0.5 else "Xỉu"
@@ -163,12 +158,9 @@ def lc79_fingerprint(results):
 
 
 # =====================================================================
-# TẦNG 2: MD5 TRANSITION MATRIX (NÂNG CẤP - MULTI-ORDER)
+# TẦNG 2: MD5 TRANSITION MATRIX
 # =====================================================================
 def lc79_transition_md5(results):
-    """
-    Nâng cấp: kết hợp 2-gram, 3-gram, 4-gram MD5 transition.
-    """
     if len(results) < 20:
         return None
 
@@ -208,7 +200,6 @@ def lc79_transition_md5(results):
     if not signals:
         return None
 
-    # Weighted vote giữa các order
     st = sx = 0.0
     for s in signals:
         w = s['ratio'] * math.log2(s['samples'] + 1) * s['order']
@@ -237,12 +228,9 @@ def lc79_transition_md5(results):
 
 
 # =====================================================================
-# TẦNG 3: MOMENTUM + ENTROPY (NÂNG CẤP)
+# TẦNG 3: MOMENTUM + ENTROPY
 # =====================================================================
 def lc79_momentum_entropy(results):
-    """
-    Nâng cấp: thêm phát hiện nhịp 1-1, 2-2, 3-3 (alternating patterns).
-    """
     if len(results) < 10:
         return None
 
@@ -255,66 +243,38 @@ def lc79_momentum_entropy(results):
 
     e = _entropy(results[:20]) if len(results) >= 20 else _entropy(results)
 
-    # 1. Phát hiện nhịp đảo 1-1 (T-X-T-X...)
     if len(results) >= 6:
         alt = all(results[i] != results[i + 1] for i in range(6))
         if alt:
-            return (_opp(results[0]), 13, {
-                "type": "alt_1_1",
-                "entropy": round(e, 3),
-            })
+            return (_opp(results[0]), 13, {"type": "alt_1_1", "entropy": round(e, 3)})
 
-    # 2. Phát hiện nhịp 2-2 (TT-XX-TT-XX)
     if len(results) >= 8:
         pairs = [(results[i], results[i + 1]) for i in range(0, 8, 2)]
         if all(p[0] == p[1] for p in pairs):
             pair_vals = [p[0] for p in pairs]
             if all(pair_vals[i] != pair_vals[i + 1] for i in range(len(pair_vals) - 1)):
                 next_pair_val = _opp(pair_vals[-1])
-                return (next_pair_val, 12, {
-                    "type": "alt_2_2",
-                    "entropy": round(e, 3),
-                })
+                return (next_pair_val, 12, {"type": "alt_2_2", "entropy": round(e, 3)})
 
-    # 3. Phát hiện nhịp 3-3
     if len(results) >= 9:
         triples = [(results[i], results[i + 1], results[i + 2]) for i in range(0, 9, 3)]
         if all(t[0] == t[1] == t[2] for t in triples):
             triple_vals = [t[0] for t in triples]
             if all(triple_vals[i] != triple_vals[i + 1] for i in range(len(triple_vals) - 1)):
-                return (_opp(triple_vals[-1]), 12, {
-                    "type": "alt_3_3",
-                    "entropy": round(e, 3),
-                })
+                return (_opp(triple_vals[-1]), 12, {"type": "alt_3_3", "entropy": round(e, 3)})
 
-    # 4. Momentum ngắn (streak 3-6)
     if MOMENTUM_MIN_STREAK <= streak <= 7:
         ratio = results[:10].count(results[0]) / 10
         if ratio >= 0.65:
             w = 13 if e < 0.85 else 10
-            return (results[0], w, {
-                "type": "momentum_hold",
-                "streak": streak,
-                "ratio": round(ratio, 3),
-                "entropy": round(e, 3),
-            })
+            return (results[0], w, {"type": "momentum_hold", "streak": streak, "ratio": round(ratio, 3), "entropy": round(e, 3)})
         if ratio <= 0.35:
             w = 13 if e < 0.85 else 10
-            return (_opp(results[0]), w, {
-                "type": "momentum_break",
-                "streak": streak,
-                "ratio": round(ratio, 3),
-                "entropy": round(e, 3),
-            })
+            return (_opp(results[0]), w, {"type": "momentum_break", "streak": streak, "ratio": round(ratio, 3), "entropy": round(e, 3)})
 
-    # 5. Entropy cao -> đảo
     if e >= ENTROPY_HIGH:
-        return (_opp(results[0]), 9, {
-            "type": "entropy_balanced_reverse",
-            "entropy": round(e, 3),
-        })
+        return (_opp(results[0]), 9, {"type": "entropy_balanced_reverse", "entropy": round(e, 3)})
 
-    # 6. Entropy thấp -> áp lực
     if e <= ENTROPY_LOW and len(results) >= 20:
         w = results[:20]
         tc = w.count("Tài")
@@ -327,13 +287,9 @@ def lc79_momentum_entropy(results):
 
 
 # =====================================================================
-# TẦNG 4 (MỚI): PATTERN N-GRAM FREQUENCY
+# TẦNG 4: PATTERN N-GRAM
 # =====================================================================
 def lc79_pattern_ngram(results):
-    """
-    Phân tích pattern n-gram (3,4,5) tần suất và dự đoán dựa trên
-    pattern khớp gần nhất + tỷ lệ kế tiếp.
-    """
     if len(results) < 20:
         return None
 
@@ -394,13 +350,9 @@ def lc79_pattern_ngram(results):
 
 
 # =====================================================================
-# TẦNG 5 (MỚI): MARKOV CHAIN BẬC 2 (KHÔNG MD5)
+# TẦNG 5: MARKOV CHAIN BẬC 2
 # =====================================================================
 def lc79_markov2(results):
-    """
-    Markov chain bậc 2 đơn giản: P(next | last2).
-    Không dùng MD5 → bắt được pattern ngắn khác fingerprint MD5.
-    """
     if len(results) < 25:
         return None
 
@@ -441,20 +393,15 @@ def lc79_markov2(results):
 
 
 # =====================================================================
-# TẦNG 6 (MỚI): BAYESIAN WEIGHTED VOTE (FREQUENCY + RECENCY)
+# TẦNG 6: BAYESIAN RECENCY
 # =====================================================================
 def lc79_bayesian_recency(results):
-    """
-    Phân tích tần suất có trọng số recency (phiên gần = trọng số cao hơn).
-    Trả về tín hiệu khi có sự lệch rõ ràng.
-    """
     if len(results) < 15:
         return None
 
     n = min(len(results), 25)
     weighted_tai = weighted_xiu = 0.0
     for i, r in enumerate(results[:n]):
-        # exponential decay: phiên mới (i=0) weight = 1, phiên cũ hơn giảm dần
         w = math.exp(-i / 8.0)
         if r == "Tài":
             weighted_tai += w
@@ -482,13 +429,9 @@ def lc79_bayesian_recency(results):
 
 
 # =====================================================================
-# TẦNG 7 (MỚI): STREAK BREAKER PREDICTION
+# TẦNG 7: STREAK PRESSURE
 # =====================================================================
 def lc79_streak_pressure(results):
-    """
-    Phân tích streak áp lực: khi một chuỗi streak dài bất thường
-    so với lịch sử trung bình → dự đoán đảo.
-    """
     if len(results) < 30:
         return None
 
@@ -503,7 +446,6 @@ def lc79_streak_pressure(results):
     if len(groups) < 5:
         return None
 
-    # Bỏ group đầu tiên (đang chạy) khỏi tính trung bình
     past_groups = groups[1:min(len(groups), 20)]
     if not past_groups:
         return None
@@ -521,10 +463,9 @@ def lc79_streak_pressure(results):
 
 
 # =====================================================================
-# TẦNG 8 (MỚI): DICE SUM ANALYSIS
+# TẦNG 8: DICE ANALYSIS
 # =====================================================================
 def _parse_dice_history(valid_rows):
-    """Trích sum dice từ history để phân tích."""
     sums = []
     for row in valid_rows:
         try:
@@ -540,24 +481,17 @@ def _parse_dice_history(valid_rows):
 
 
 def lc79_dice_analysis(dice_sums):
-    """
-    Phân tích tổng xúc xắc để phát hiện bias:
-    - Tài = 11-18, Xỉu = 4-10
-    - Nếu sums gần đây lệch về 1 phía → dự đoán đảo
-    """
     if not dice_sums or len(dice_sums) < 15:
         return None
 
     recent = dice_sums[:20]
     avg = sum(recent) / len(recent)
-    # Trung bình chuẩn là 10.5
     deviation = avg - 10.5
 
     if abs(deviation) < 1.2:
         return None
 
     if deviation > 0:
-        # Gần đây dice cao → có thể sắp hạ
         pred = "Xỉu"
         strength = min(1.0, deviation / 3.0)
     else:
@@ -574,17 +508,13 @@ def lc79_dice_analysis(dice_sums):
 
 
 # =====================================================================
-# TỔNG HỢP LC79 MD5 PRO — WEIGHTED VOTING VỚI 8 TẦNG
+# TỔNG HỢP
 # =====================================================================
 def lc79_predict(results, dice_sums=None):
-    """
-    Tổng hợp 8 tầng phân tích. Trả về (pred, conf, meta).
-    """
     n = len(results)
     if n == 0:
         return "Tài", 50, {"mode": "empty"}
 
-    # Warmup
     if n == 1:
         return _opp(results[0]), 54, {"mode": "warmup_1"}
     if n == 2:
@@ -611,59 +541,42 @@ def lc79_predict(results, dice_sums=None):
     layers = []
     layer_names = []
 
-    # Tầng 1: Fingerprint MD5
     r = lc79_fingerprint(results)
     if r:
-        layers.append(r)
-        layer_names.append("fingerprint_md5")
+        layers.append(r); layer_names.append("fingerprint_md5")
 
-    # Tầng 2: Transition MD5 multi-order
     r = lc79_transition_md5(results)
     if r:
-        layers.append(r)
-        layer_names.append("transition_md5")
+        layers.append(r); layer_names.append("transition_md5")
 
-    # Tầng 3: Momentum + Entropy
     r = lc79_momentum_entropy(results)
     if r:
-        layers.append(r)
-        layer_names.append("momentum_entropy")
+        layers.append(r); layer_names.append("momentum_entropy")
 
-    # Tầng 4: Pattern n-gram
     r = lc79_pattern_ngram(results)
     if r:
-        layers.append(r)
-        layer_names.append("pattern_ngram")
+        layers.append(r); layer_names.append("pattern_ngram")
 
-    # Tầng 5: Markov bậc 2
     r = lc79_markov2(results)
     if r:
-        layers.append(r)
-        layer_names.append("markov2")
+        layers.append(r); layer_names.append("markov2")
 
-    # Tầng 6: Bayesian recency
     r = lc79_bayesian_recency(results)
     if r:
-        layers.append(r)
-        layer_names.append("bayesian_recency")
+        layers.append(r); layer_names.append("bayesian_recency")
 
-    # Tầng 7: Streak pressure
     r = lc79_streak_pressure(results)
     if r:
-        layers.append(r)
-        layer_names.append("streak_pressure")
+        layers.append(r); layer_names.append("streak_pressure")
 
-    # Tầng 8: Dice analysis (nếu có)
     if dice_sums:
         r = lc79_dice_analysis(dice_sums)
         if r:
-            layers.append(r)
-            layer_names.append("dice_bias")
+            layers.append(r); layer_names.append("dice_bias")
 
     if not layers:
         return _opp(results[0]), 54, {"mode": "fallback_alt"}
 
-    # Weighted voting
     st = sx = 0.0
     for pred, w, _ in layers:
         if pred == "Tài":
@@ -676,32 +589,24 @@ def lc79_predict(results, dice_sums=None):
         return _opp(results[0]), 54, {"mode": "no_signal"}
 
     if st > sx:
-        pred = "Tài"
-        ratio = st / total_w
+        pred = "Tài"; ratio = st / total_w
     elif sx > st:
-        pred = "Xỉu"
-        ratio = sx / total_w
+        pred = "Xỉu"; ratio = sx / total_w
     else:
         return _opp(results[0]), 55, {"mode": "tie"}
 
-    # Confidence calibration
     agree_layers = sum(1 for p, _, _ in layers if p == pred)
     n_layers = len(layers)
 
     base_conf = 52
-    # Ratio contribution (0..28)
     base_conf += int((ratio - 0.5) * 56)
-    # Agreement bonus
     if n_layers >= 2:
         agreement_pct = agree_layers / n_layers
         base_conf += int(agreement_pct * 12)
-        # All layers agree bonus
         if agree_layers == n_layers and n_layers >= 3:
             base_conf += 4
-    # Layer count bonus
     base_conf += min(4, max(0, n_layers - 2))
 
-    # Penalty nếu ít layer
     if n_layers == 1:
         base_conf -= 8
     elif n_layers == 2:
@@ -723,12 +628,9 @@ def lc79_predict(results, dice_sums=None):
 
 
 # =====================================================================
-# ADAPTIVE RECOVERY (NÂNG CẤP)
+# ADAPTIVE RECOVERY
 # =====================================================================
 def apply_recovery(base_pred, conf, loss_streak, results=None):
-    """
-    Recovery thông minh: chỉ flip khi tín hiệu đủ mạnh và entropy không quá cao.
-    """
     if loss_streak < 2:
         return base_pred, conf, False, None
 
@@ -857,7 +759,7 @@ def compute_loss_streak(valid, max_scan=25):
 
 
 # =====================================================================
-# HTML TEMPLATE (giữ nguyên + thêm hiển thị layers)
+# HTML TEMPLATE — GIAO DIỆN ĐƠN GIẢN (ẨN THUẬT TOÁN)
 # =====================================================================
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -865,7 +767,7 @@ HTML_TEMPLATE = """
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>LEMINH · LC79 MD5 PRO</title>
+<title>LEMINH</title>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <style>
@@ -874,93 +776,45 @@ HTML_TEMPLATE = """
         --text-muted: #94a3b8; --border-color: #334155;
         --tai-color: #38bdf8; --tai-bg: rgba(56, 189, 248, 0.15);
         --xiu-color: #f472b6; --xiu-bg: rgba(244, 114, 182, 0.15);
-        --win-color: #34d399; --win-bg: rgba(52, 211, 153, 0.15);
-        --lose-color: #f87171; --lose-bg: rgba(248, 113, 113, 0.15);
-        --wait-color: #fbbf24; --wait-bg: rgba(251, 191, 36, 0.15);
-        --recovery-color: #fb923c; --recovery-bg: rgba(251, 146, 60, 0.15);
     }
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; }
     body { background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); color: var(--text-main); min-height: 100vh; padding-bottom: 40px; }
     .header { background: rgba(30, 41, 59, 0.85); backdrop-filter: blur(12px); border-bottom: 1px solid var(--border-color); padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 100; }
     .header-title { font-size: 22px; font-weight: 800; color: #38bdf8; display: flex; align-items: center; gap: 10px; text-shadow: 0 0 20px rgba(56, 189, 248, 0.4); }
-    .header-title small { font-size: 10px; color: var(--text-muted); font-weight: 600; letter-spacing: 1px; }
     .header-actions { display: flex; gap: 12px; align-items: center; }
     .time-update { font-size: 12px; color: var(--text-muted); font-weight: 600; }
     .btn-refresh { background: var(--bg-card); color: var(--text-main); border: 1px solid var(--border-color); width: 38px; height: 38px; border-radius: 10px; font-weight: 700; font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: 0.2s; }
     .btn-refresh:hover { background: var(--border-color); transform: rotate(180deg); }
-    .btn-reset { background: rgba(248, 113, 113, 0.2); color: var(--lose-color); border: 1px solid var(--lose-color); padding: 8px 16px; border-radius: 10px; font-weight: 700; font-size: 13px; cursor: pointer; transition: 0.2s; }
-    .btn-reset:hover { background: var(--lose-color); color: #fff; box-shadow: 0 0 15px rgba(248, 113, 113, 0.4); }
-    .stats-bar { max-width: 800px; margin: 24px auto 16px; padding: 0 16px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
-    .stat-item { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 14px; padding: 16px 10px; text-align: center; box-shadow: 0 4px 20px rgba(0,0,0,0.2); }
-    .stat-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; font-weight: 700; margin-bottom: 6px; letter-spacing: 0.3px; }
-    .stat-value { font-size: 22px; font-weight: 800; color: var(--text-main); }
-    .stat-value.win { color: var(--win-color); text-shadow: 0 0 15px rgba(52, 211, 153, 0.4); }
-    .stat-value.loss { color: var(--lose-color); text-shadow: 0 0 15px rgba(248, 113, 113, 0.4); }
-    .stat-value.rate { color: var(--tai-color); text-shadow: 0 0 15px rgba(56, 189, 248, 0.4); }
-    .table-wrapper { max-width: 800px; margin: 0 auto; padding: 0 16px; }
-    .table-container { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); max-height: 70vh; overflow-y: auto; }
+    .btn-reset { background: rgba(248, 113, 113, 0.2); color: #f87171; border: 1px solid #f87171; padding: 8px 16px; border-radius: 10px; font-weight: 700; font-size: 13px; cursor: pointer; transition: 0.2s; }
+    .btn-reset:hover { background: #f87171; color: #fff; box-shadow: 0 0 15px rgba(248, 113, 113, 0.4); }
+    .table-wrapper { max-width: 800px; margin: 24px auto; padding: 0 16px; }
+    .table-container { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); max-height: 80vh; overflow-y: auto; }
     .data-table { width: 100%; border-collapse: separate; border-spacing: 0; }
     .data-table th { background: #111827; color: var(--text-muted); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; padding: 16px 12px; text-align: center; border-bottom: 1px solid var(--border-color); position: sticky; top: 0; z-index: 10; }
     .data-table td { padding: 14px 12px; text-align: center; border-bottom: 1px solid var(--border-color); font-size: 14px; font-weight: 600; }
     .data-table tr:last-child td { border-bottom: none; }
     .data-table tr:hover { background: rgba(255, 255, 255, 0.02); }
-    .row-next { background: rgba(14, 165, 233, 0.08); border-left: 4px solid var(--tai-color); }
-    .row-next.recovery { background: rgba(251, 146, 60, 0.1); border-left: 4px solid var(--recovery-color); }
     .badge { display: inline-block; padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: 700; min-width: 70px; text-align: center; }
     .badge-tai { background: var(--tai-bg); color: var(--tai-color); border: 1px solid rgba(56, 189, 248, 0.3); box-shadow: 0 0 10px rgba(56, 189, 248, 0.2); }
     .badge-xiu { background: var(--xiu-bg); color: var(--xiu-color); border: 1px solid rgba(244, 114, 182, 0.3); box-shadow: 0 0 10px rgba(244, 114, 182, 0.2); }
-    .badge-empty { background: rgba(255, 255, 255, 0.05); color: var(--text-muted); }
-    .recovery-badge { display: inline-block; margin-left: 6px; padding: 2px 8px; border-radius: 8px; font-size: 10px; font-weight: 800; background: var(--recovery-bg); color: var(--recovery-color); border: 1px solid var(--recovery-color); box-shadow: 0 0 10px rgba(251, 146, 60, 0.3); animation: pulse 1.5s infinite; letter-spacing: 0.5px; }
-    .status { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; padding: 6px 14px; border-radius: 20px; }
-    .st-win { background: var(--win-bg); color: var(--win-color); border: 1px solid rgba(52, 211, 153, 0.3); }
-    .st-lose { background: var(--lose-bg); color: var(--lose-color); border: 1px solid rgba(248, 113, 113, 0.3); }
-    .st-wait { background: var(--wait-bg); color: var(--wait-color); border: 1px solid rgba(251, 191, 36, 0.3); animation: pulse 1.5s infinite; }
-    .st-recover { background: var(--recovery-bg); color: var(--recovery-color); border: 1px solid var(--recovery-color); animation: pulse 1.5s infinite; }
-    @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
     .dice-text { font-size: 11px; color: var(--text-muted); display: block; margin-top: 4px; font-weight: 500; }
-    .conf-badge { font-size: 11px; color: #38bdf8; background: rgba(56, 189, 248, 0.1); padding: 2px 8px; border-radius: 10px; margin-top: 4px; display: inline-block; font-weight: 700; }
-    .conf-badge.high { color: #34d399; background: rgba(52, 211, 153, 0.15); box-shadow: 0 0 10px rgba(52, 211, 153, 0.2); }
-    .conf-badge.ultra { color: #fbbf24; background: rgba(251, 191, 36, 0.15); box-shadow: 0 0 10px rgba(251, 191, 36, 0.3); }
     .loading { text-align: center; padding: 40px; color: var(--tai-color); font-weight: 600; }
-    .layers-info { max-width: 800px; margin: 16px auto; padding: 0 16px; }
-    .layers-card { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 14px; padding: 14px 18px; }
-    .layers-title { font-size: 11px; color: var(--text-muted); text-transform: uppercase; font-weight: 700; margin-bottom: 10px; letter-spacing: 0.5px; }
-    .layer-chips { display: flex; flex-wrap: wrap; gap: 8px; }
-    .layer-chip { font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 8px; background: rgba(255,255,255,0.05); color: var(--text-muted); border: 1px solid var(--border-color); }
-    .layer-chip.tai { background: var(--tai-bg); color: var(--tai-color); border-color: rgba(56,189,248,0.3); }
-    .layer-chip.xiu { background: var(--xiu-bg); color: var(--xiu-color); border-color: rgba(244,114,182,0.3); }
     @media (max-width: 500px) {
         .data-table th, .data-table td { padding: 10px 6px; font-size: 12px; }
         .badge { padding: 4px 8px; font-size: 11px; min-width: 50px; }
         .header-title { font-size: 18px; }
         .time-update { display: none; }
-        .stats-bar { grid-template-columns: repeat(2, 1fr); }
-        .stat-value { font-size: 18px; }
     }
 </style>
 </head>
 <body>
 
 <div class="header">
-    <div class="header-title">LEMINH <small>LC79 MD5 PRO</small></div>
+    <div class="header-title">LEMINH</div>
     <div class="header-actions">
         <div class="time-update" id="time-update">--:--:--</div>
         <button class="btn-refresh" onclick="fetchData()">↻</button>
         <button class="btn-reset" onclick="confirmReset()">Reset</button>
-    </div>
-</div>
-
-<div class="stats-bar">
-    <div class="stat-item"><div class="stat-label">Tổng</div><div class="stat-value" id="stat-total">0</div></div>
-    <div class="stat-item"><div class="stat-label">Thắng</div><div class="stat-value win" id="stat-win">0</div></div>
-    <div class="stat-item"><div class="stat-label">Thua</div><div class="stat-value loss" id="stat-lose">0</div></div>
-    <div class="stat-item"><div class="stat-label">Tỷ lệ thắng</div><div class="stat-value rate" id="stat-rate">0%</div></div>
-</div>
-
-<div class="layers-info" id="layers-info" style="display:none;">
-    <div class="layers-card">
-        <div class="layers-title">🧠 Tín hiệu 8 tầng phân tích</div>
-        <div class="layer-chips" id="layer-chips"></div>
     </div>
 </div>
 
@@ -970,13 +824,11 @@ HTML_TEMPLATE = """
             <thead>
                 <tr>
                     <th>Phiên</th>
-                    <th>Dự đoán</th>
                     <th>Kết quả</th>
-                    <th>Trạng thái</th>
                 </tr>
             </thead>
             <tbody id="table-body">
-                <tr><td colspan="4" class="loading">Đang kết nối Server...</td></tr>
+                <tr><td colspan="2" class="loading">Đang kết nối Server...</td></tr>
             </tbody>
         </table>
     </div>
@@ -985,20 +837,6 @@ HTML_TEMPLATE = """
 <script>
 let isResetting = false;
 
-function animateNumber(el, target, suffix = '') {
-    const start = parseInt(el.innerText.replace(/[^0-9]/g, '')) || 0;
-    if (start === target) { el.innerText = target + suffix; return; }
-    const duration = 500;
-    const startTime = performance.now();
-    function update(t) {
-        const p = Math.min((t - startTime) / duration, 1);
-        const ease = 1 - Math.pow(1 - p, 3);
-        el.innerText = Math.floor(start + (target - start) * ease) + suffix;
-        if (p < 1) requestAnimationFrame(update);
-    }
-    requestAnimationFrame(update);
-}
-
 async function fetchData() {
     if (isResetting) return;
     try {
@@ -1006,85 +844,28 @@ async function fetchData() {
         const data = await r.json();
         const now = new Date();
         document.getElementById('time-update').innerText = now.toLocaleTimeString('vi-VN');
-        renderTable(data.rows || [], data.stats || {});
-        renderLayers(data.meta || {});
+        renderTable(data.rows || []);
     } catch (e) { console.error("Lỗi tải dữ liệu:", e); }
 }
 
-function renderLayers(meta) {
-    const info = document.getElementById('layers-info');
-    const chips = document.getElementById('layer-chips');
-    if (!meta || !meta.layers || !meta.layers.length) {
-        info.style.display = 'none';
-        return;
-    }
-    info.style.display = 'block';
-    let html = '';
-    meta.layers.forEach(l => {
-        const cls = l.pred === 'Tài' ? 'tai' : 'xiu';
-        const shortName = l.name.replace('_md5','').replace('_',' ').toUpperCase();
-        html += `<span class="layer-chip ${cls}">${shortName} → ${l.pred} (w${l.w})</span>`;
-    });
-    chips.innerHTML = html;
-}
-
-function renderTable(rows, stats) {
+function renderTable(rows) {
     const tbody = document.getElementById('table-body');
-    const total = stats.total || 0;
-    const correct = stats.correct || 0;
-    const wrong = total - correct;
-    animateNumber(document.getElementById('stat-total'), total);
-    animateNumber(document.getElementById('stat-win'), correct);
-    animateNumber(document.getElementById('stat-lose'), wrong);
-    const rate = total > 0 ? (correct / total) * 100 : 0;
-    animateNumber(document.getElementById('stat-rate'), Math.round(rate), '%');
-
     if (!rows.length) {
-        tbody.innerHTML = '<tr><td colspan="4" class="loading">Không có dữ liệu. Hãy đợi phiên mới.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="2" class="loading">Không có dữ liệu. Hãy đợi phiên mới.</td></tr>';
         return;
     }
     let html = '';
     rows.forEach((row) => {
-        let trClass = '';
-        if (row.is_next) trClass = row.recovery_flipped ? 'class="row-next recovery"' : 'class="row-next"';
-        let predHtml = `<span class="badge badge-empty">-</span>`;
-        if (row.prediction === "Tài") predHtml = `<span class="badge badge-tai">TÀI</span>`;
-        if (row.prediction === "Xỉu") predHtml = `<span class="badge badge-xiu">XỈU</span>`;
-        let recBadge = "";
-        if (row.recovery_flipped) {
-            recBadge = `<span class="recovery-badge" title="Auto-flip do thua ${row.loss_streak || 0} lần">⚡</span>`;
-        }
-        let confHtml = "";
-        if (row.conf && row.prediction !== "-") {
-            let cls = 'conf-badge';
-            if (row.conf >= 80) cls = 'conf-badge ultra';
-            else if (row.conf >= 70) cls = 'conf-badge high';
-            confHtml = `<div class="${cls}">${row.conf}%</div>`;
-        }
-        let predFull = `<div style="display:flex; flex-direction:column; align-items:center; gap:2px;">${predHtml}${confHtml}${recBadge}</div>`;
-        let resultHtml = `<span class="badge badge-empty">-</span>`;
-        if (row.result === "Tài") resultHtml = `<span class="badge badge-tai">TÀI</span>`;
+        let resultHtml = `<span class="badge badge-tai">TÀI</span>`;
         if (row.result === "Xỉu") resultHtml = `<span class="badge badge-xiu">XỈU</span>`;
         let diceDisplay = "";
-        if (row.dice !== "? + ? + ?") {
+        if (row.dice && row.dice !== "? + ? + ?") {
             const p = row.dice.split(" + ");
             const sum = parseInt(p[0]) + parseInt(p[1]) + parseInt(p[2]);
             diceDisplay = `<span class="dice-text">${row.dice} (${sum})</span>`;
         }
         let resultFull = `<div style="display:flex; flex-direction:column; align-items:center;">${resultHtml}${diceDisplay}</div>`;
-        let statusHtml = '';
-        if (row.is_next) {
-            statusHtml = row.recovery_flipped
-                ? `<span class="status st-recover">⚡ Đảo chiều</span>`
-                : `<span class="status st-wait">Chờ kết quả</span>`;
-        } else if (row.is_correct === true) {
-            statusHtml = `<span class="status st-win">✔ THẮNG</span>`;
-        } else if (row.is_correct === false) {
-            statusHtml = `<span class="status st-lose">✖ THUA</span>`;
-        } else {
-            statusHtml = `<span class="status" style="color:var(--text-muted)">-</span>`;
-        }
-        html += `<tr ${trClass}><td>#${row.phien}</td><td>${predFull}</td><td>${resultFull}</td><td>${statusHtml}</td></tr>`;
+        html += `<tr><td>#${row.phien}</td><td>${resultFull}</td></tr>`;
     });
     tbody.innerHTML = html;
 }
@@ -1147,61 +928,21 @@ def history():
             return jsonify({'error': 'Không thể kết nối API'}), 500
         valid = _sync_history(raw_rows)
         if not valid:
-            return jsonify({'rows': [], 'stats': {'total': 0, 'correct': 0}})
-
-        loss_streak = compute_loss_streak(valid)
+            return jsonify({'rows': []})
 
         out = []
-        correct_count = 0
-        total_past = 0
-        latest_session = valid[-1]
-        next_phien = latest_session['phien'] + 1
-        history_for_next = [v['result'] for v in valid][::-1]
-        dice_sums_next = _parse_dice_history(valid[::-1])
-
-        base_pred, base_conf, meta = lc79_predict(history_for_next, dice_sums_next)
-        next_pred, next_conf, flipped, reason = apply_recovery(
-            base_pred, base_conf, loss_streak, history_for_next
-        )
-
-        out.append({
-            'phien': next_phien, 'is_next': True,
-            'prediction': next_pred, 'result': 'Chờ...',
-            'dice': "? + ? + ?", 'is_correct': None,
-            'conf': next_conf,
-            'recovery_flipped': flipped,
-            'recovery_reason': reason,
-            'loss_streak': loss_streak,
-            'base_prediction': base_pred if flipped else None,
-        })
-
         scan_limit = min(len(valid), 200)
         for i in range(len(valid) - 1, len(valid) - scan_limit - 1, -1):
             if i < 0:
                 break
-            current_session = valid[i]
-            pred, conf, is_correct = get_prediction_for(valid, i)
-            if is_correct is not None:
-                total_past += 1
-            if is_correct:
-                correct_count += 1
+            s = valid[i]
             out.append({
-                'phien': current_session['phien'], 'is_next': False,
-                'prediction': pred, 'result': current_session['result'],
-                'dice': current_session['dice'], 'is_correct': is_correct,
-                'conf': conf, 'recovery_flipped': False,
+                'phien': s['phien'],
+                'result': s['result'],
+                'dice': s['dice'],
             })
 
-        return jsonify({
-            'rows': out,
-            'stats': {'total': total_past, 'correct': correct_count},
-            'loss_streak': loss_streak,
-            'recovery_active': flipped,
-            'recovery_reason': reason,
-            'base_prediction': base_pred,
-            'algorithm': 'LC79_MD5_PRO',
-            'meta': meta,
-        })
+        return jsonify({'rows': out})
     except Exception as e:
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
@@ -1222,9 +963,7 @@ def predict():
 
         loss_streak = compute_loss_streak(valid)
         base_pred, base_conf, meta = lc79_predict(results, dice_sums)
-        pred, conf, flipped, reason = apply_recovery(
-            base_pred, base_conf, loss_streak, results
-        )
+        pred, conf, flipped, reason = apply_recovery(base_pred, base_conf, loss_streak, results)
 
         return jsonify({
             'algorithm': 'LC79_MD5_PRO',
@@ -1265,9 +1004,7 @@ def betvipmd5():
 
         loss_streak = compute_loss_streak(valid)
         base_pred, base_conf, meta = lc79_predict(results, dice_sums)
-        pred, conf, flipped, reason = apply_recovery(
-            base_pred, base_conf, loss_streak, results
-        )
+        pred, conf, flipped, reason = apply_recovery(base_pred, base_conf, loss_streak, results)
 
         conf_str = f"{conf:.1f}".replace(".", ",") + "%"
 
