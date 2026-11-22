@@ -12,7 +12,8 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)
 
-API_URL_MD5 = "https://wtxmd52.tele68.com/v1/txmd5/lite-sessions?cp=R&cl=R&pf=web&at=d35795e07a393f91815436933a4852df"
+# ========== API MỚI (đã thay) ==========
+API_URL_MD5 = "https://wtxmd52.macminim6.online/v1/txmd5/lite-sessions?cp=R&cl=R&pf=web&at=bd651d261174ed4a619dfde6c5432fdd"
 
 HISTORY_CACHE = {}
 PREDICTION_CACHE = {}
@@ -24,12 +25,12 @@ FETCH_RETRY = 2
 FETCH_TIMEOUT = 6
 
 # =====================================================================
-# CẤU HÌNH THUẬT TOÁN LC79 MD5 PRO v2 (NÂNG CẤP)
+# CẤU HÌNH THUẬT TOÁN LC79 MD5 DEEP PRO v3
 # =====================================================================
 WINDOW_SIZE = 5
 FINGERPRINT_MIN_MATCH = 3
 FINGERPRINT_STRONG = 0.72
-TRANSITION_MIN_SAMPLES = 6
+TRANSITION_MIN_SAMPLES = 5
 MOMENTUM_MIN_STREAK = 3
 ENTROPY_HIGH = 0.98
 ENTROPY_LOW = 0.55
@@ -42,12 +43,17 @@ CONFIDENCE_FLOOR = 50
 CONFIDENCE_CEIL = 95
 
 FUZZY_MATCH_RATIO = 0.75
-CLUSTER_MIN_SAMPLES = 4
-CYCLE_MIN_PERIOD = 4
-CYCLE_MAX_PERIOD = 12
-CYCLE_MIN_CONFIDENCE = 0.65
-MULTI_WINDOW_LIST = (5, 8, 12, 20)
-DRIFT_ALPHA = 0.7
+CLUSTER_MIN_SAMPLES = 3
+CYCLE_MIN_PERIOD = 3
+CYCLE_MAX_PERIOD = 14
+CYCLE_MIN_CONFIDENCE = 0.60
+MULTI_WINDOW_LIST = (4, 5, 8, 12, 20)
+
+# ========== CẤU HÌNH FIX GÃY CẦU 2-3 TAY ==========
+BREAK_STREAK_THRESHOLD = 2      # Bắt đầu bẻ khi thua 2 tay
+BREAK_STREAK_STRONG = 3         # Bẻ mạnh khi thua 3 tay
+TREND_REVERSE_WINDOW = 8        # Window phát hiện đảo chiều
+ALT_1_1_DETECT = 6              # Phát hiện cầu 1-1
 
 
 # =====================================================================
@@ -116,8 +122,47 @@ def _weighted_count(seq, base_pred, decay=0.9):
     return w
 
 
+def _detect_alt_pattern(results, max_len=10):
+    """Phát hiện cầu 1-1 (alternating)"""
+    if len(results) < 4:
+        return None
+    check_len = min(len(results), max_len)
+    seq = results[:check_len]
+    alt_count = 0
+    for i in range(len(seq) - 1):
+        if seq[i] != seq[i + 1]:
+            alt_count += 1
+        else:
+            break
+    if alt_count >= ALT_1_1_DETECT - 1:
+        return {'type': 'alt_1_1', 'length': alt_count + 1,
+                'next': _opp(seq[0])}
+    return None
+
+
+def _detect_trend(results, window=8):
+    """Phát hiện xu hướng đảo nghịch / thuận"""
+    if len(results) < window + 2:
+        return None
+    recent = results[:window]
+    older = results[window:window * 2]
+    if not older:
+        return None
+    r_tai = recent.count("Tài") / len(recent)
+    o_tai = older.count("Tài") / len(older)
+    drift = r_tai - o_tai
+    if abs(drift) >= 0.30:
+        return {
+            'type': 'trend_reverse' if (r_tai > 0.5) != (o_tai > 0.5) else 'trend_follow',
+            'recent_tai': round(r_tai, 3),
+            'older_tai': round(o_tai, 3),
+            'drift': round(drift, 3),
+        }
+    return None
+
+
 # =====================================================================
-# TẦNG 1: MD5 FINGERPRINT (FUZZY + MULTI-WINDOW)
+# TẦNG 1: DEEP MD5 FINGERPRINT (MULTI-WINDOW + FUZZY + DEEP HASH)
 # =====================================================================
 def lc79_fingerprint(results):
     if len(results) < 10:
@@ -126,13 +171,17 @@ def lc79_fingerprint(results):
     bits = _to_bits(results)
     best = None
 
-    for ws in (7, 6, 5, 4, 3):
+    for ws in (8, 7, 6, 5, 4, 3):
         if len(bits) < ws + 5:
             continue
         cur_fp = bits[:ws]
         tai_next = xiu_next = 0.0
         total = 0.0
         fuzzy_hits = []
+        deep_hits = 0
+
+        # Tạo deep hash từ đoạn hiện tại + 2 bit context
+        cur_deep = _md5(cur_fp + bits[:2])[:4]
 
         for i in range(1, len(bits) - ws):
             segment = bits[i:i + ws]
@@ -143,6 +192,10 @@ def lc79_fingerprint(results):
                 else:
                     xiu_next += 1
                 total += 1
+                # Deep hash match
+                deep_seg = _md5(segment + bits[i:i + 2])[:4]
+                if deep_seg == cur_deep:
+                    deep_hits += 1
             else:
                 ham = _hamming(segment, cur_fp)
                 similarity = 1.0 - ham / ws
@@ -164,8 +217,9 @@ def lc79_fingerprint(results):
         if ratio < 0.60:
             continue
 
-        fuzzy_bonus = 1.0 + (len(fuzzy_hits) / max(total, 1)) * 0.3
-        score = ratio * math.log2(total + 1) * (ws / 5.0) * fuzzy_bonus
+        fuzzy_bonus = 1.0 + (len(fuzzy_hits) / max(total, 1)) * 0.35
+        deep_bonus = 1.0 + min(0.5, deep_hits * 0.05)
+        score = ratio * math.log2(total + 1) * (ws / 5.0) * fuzzy_bonus * deep_bonus
 
         if best is None or score > best['score']:
             pred = "Tài" if p_tai >= 0.5 else "Xỉu"
@@ -175,16 +229,18 @@ def lc79_fingerprint(results):
                 'tai_next': tai_next, 'xiu_next': xiu_next,
                 'fuzzy_count': len(fuzzy_hits),
                 'exact_count': int(total - len(fuzzy_hits)),
+                'deep_hits': deep_hits,
             }
 
     if not best:
         return None
 
-    sample_bonus = min(7, int(math.log2(best['samples'] + 1) * 2.5))
-    window_bonus = min(3, max(0, best['window'] - 4))
-    fuzzy_bonus = min(3, best['fuzzy_count'] // 3)
-    weight = 11 + sample_bonus + window_bonus + fuzzy_bonus + int((best['ratio'] - 0.5) * 30)
-    weight = max(11, min(28, weight))
+    sample_bonus = min(8, int(math.log2(best['samples'] + 1) * 2.5))
+    window_bonus = min(4, max(0, best['window'] - 4))
+    fuzzy_bonus = min(4, best['fuzzy_count'] // 3)
+    deep_bonus = min(3, best['deep_hits'] // 2)
+    weight = 11 + sample_bonus + window_bonus + fuzzy_bonus + deep_bonus + int((best['ratio'] - 0.5) * 30)
+    weight = max(11, min(30, weight))
 
     return (best['pred'], weight, {
         "fp": _md5(bits[:best['window']])[:8],
@@ -193,11 +249,12 @@ def lc79_fingerprint(results):
         "window": best['window'],
         "exact": best['exact_count'],
         "fuzzy": best['fuzzy_count'],
+        "deep_hits": best['deep_hits'],
     })
 
 
 # =====================================================================
-# TẦNG 2: MD5 TRANSITION (ORDER 2-5)
+# TẦNG 2: DEEP MD5 TRANSITION (ORDER 2-6)
 # =====================================================================
 def lc79_transition_md5(results):
     if len(results) < 20:
@@ -206,7 +263,7 @@ def lc79_transition_md5(results):
     bits = _to_bits(results)
     signals = []
 
-    for order in (2, 3, 4, 5):
+    for order in (2, 3, 4, 5, 6):
         if len(bits) < order + 10:
             continue
         cur_key = _md5(bits[:order])
@@ -226,7 +283,7 @@ def lc79_transition_md5(results):
 
         p_tai = (d["Tài"] + BAYES_PRIOR_ALPHA) / (tot + 2 * BAYES_PRIOR_ALPHA)
         ratio = max(p_tai, 1 - p_tai)
-        if ratio < 0.62:
+        if ratio < 0.60:
             continue
 
         signals.append({
@@ -239,7 +296,7 @@ def lc79_transition_md5(results):
 
     st = sx = 0.0
     for s in signals:
-        w = s['ratio'] * math.log2(s['samples'] + 1) * (s['order'] ** 0.5)
+        w = s['ratio'] * math.log2(s['samples'] + 1) * (s['order'] ** 0.6)
         if s['pred'] == "Tài":
             st += w
         else:
@@ -250,11 +307,11 @@ def lc79_transition_md5(results):
 
     pred = "Tài" if st > sx else "Xỉu"
     ratio = max(st, sx) / (st + sx)
-    if ratio < 0.58:
+    if ratio < 0.56:
         return None
 
-    weight = 9 + int((ratio - 0.6) * 45) + len(signals) * 2
-    weight = max(9, min(24, weight))
+    weight = 9 + int((ratio - 0.6) * 50) + len(signals) * 2
+    weight = max(9, min(26, weight))
 
     return (pred, weight, {
         "samples": sum(s['samples'] for s in signals),
@@ -265,7 +322,7 @@ def lc79_transition_md5(results):
 
 
 # =====================================================================
-# TẦNG 3: MOMENTUM + ENTROPY (WEIGHTED)
+# TẦNG 3: MOMENTUM + ENTROPY + TREND REVERSE
 # =====================================================================
 def lc79_momentum_entropy(results):
     if len(results) < 10:
@@ -280,26 +337,27 @@ def lc79_momentum_entropy(results):
 
     e = _entropy(results[:20]) if len(results) >= 20 else _entropy(results)
 
-    if len(results) >= 6:
-        alt = all(results[i] != results[i + 1] for i in range(6))
-        if alt:
-            return (_opp(results[0]), 13, {"type": "alt_1_1", "entropy": round(e, 3)})
+    # Cầu 1-1 alternating
+    alt = _detect_alt_pattern(results)
+    if alt:
+        return (_opp(results[0]), 14, {"type": "alt_1_1", "length": alt['length'], "entropy": round(e, 3)})
 
     if len(results) >= 8:
         pairs = [(results[i], results[i + 1]) for i in range(0, 8, 2)]
         if all(p[0] == p[1] for p in pairs):
             pair_vals = [p[0] for p in pairs]
             if all(pair_vals[i] != pair_vals[i + 1] for i in range(len(pair_vals) - 1)):
-                return (_opp(pair_vals[-1]), 12, {"type": "alt_2_2", "entropy": round(e, 3)})
+                return (_opp(pair_vals[-1]), 13, {"type": "alt_2_2", "entropy": round(e, 3)})
 
     if len(results) >= 9:
         triples = [(results[i], results[i + 1], results[i + 2]) for i in range(0, 9, 3)]
         if all(t[0] == t[1] == t[2] for t in triples):
             triple_vals = [t[0] for t in triples]
             if all(triple_vals[i] != triple_vals[i + 1] for i in range(len(triple_vals) - 1)):
-                return (_opp(triple_vals[-1]), 12, {"type": "alt_3_3", "entropy": round(e, 3)})
+                return (_opp(triple_vals[-1]), 13, {"type": "alt_3_3", "entropy": round(e, 3)})
 
-    if MOMENTUM_MIN_STREAK <= streak <= 8:
+    # Momentum thuận / nghịch
+    if MOMENTUM_MIN_STREAK <= streak <= 9:
         window = results[:12]
         w_tai = _weighted_count(window, "Tài", decay=0.85)
         w_xiu = _weighted_count(window, "Xỉu", decay=0.85)
@@ -310,29 +368,39 @@ def lc79_momentum_entropy(results):
             dominant = "Tài" if p_tai > p_xiu else "Xỉu"
             ratio = max(p_tai, p_xiu)
 
-            if results[0] == dominant and ratio >= 0.60:
-                w = 13 if e < 0.85 else 10
+            if results[0] == dominant and ratio >= 0.58:
+                w = 14 if e < 0.85 else 11
                 return (dominant, w, {
                     "type": "momentum_hold", "streak": streak,
                     "ratio": round(ratio, 3), "entropy": round(e, 3),
                 })
-            if results[0] != dominant and ratio >= 0.60:
+            if results[0] != dominant and ratio >= 0.58:
                 w = 13 if e < 0.85 else 10
                 return (dominant, w, {
                     "type": "momentum_break", "streak": streak,
                     "ratio": round(ratio, 3), "entropy": round(e, 3),
                 })
 
+    # Xu hướng đảo nghịch
+    trend = _detect_trend(results, TREND_REVERSE_WINDOW)
+    if trend:
+        if trend['type'] == 'trend_reverse':
+            pred = "Tài" if trend['recent_tai'] < 0.5 else "Xỉu"
+            return (pred, 13, {"type": "trend_reverse", **trend})
+        else:
+            pred = "Tài" if trend['recent_tai'] > 0.5 else "Xỉu"
+            return (pred, 11, {"type": "trend_follow", **trend})
+
     if e >= ENTROPY_HIGH:
-        return (_opp(results[0]), 9, {"type": "entropy_balanced_reverse", "entropy": round(e, 3)})
+        return (_opp(results[0]), 10, {"type": "entropy_balanced_reverse", "entropy": round(e, 3)})
 
     if e <= ENTROPY_LOW and len(results) >= 20:
         w = results[:20]
         tc = w.count("Tài")
         if tc >= 15:
-            return ("Xỉu", 12, {"type": "pressure_tai", "tai_count": tc})
+            return ("Xỉu", 13, {"type": "pressure_tai", "tai_count": tc})
         if tc <= 5:
-            return ("Tài", 12, {"type": "pressure_xiu", "tai_count": tc})
+            return ("Tài", 13, {"type": "pressure_xiu", "tai_count": tc})
 
     return None
 
@@ -348,7 +416,7 @@ def lc79_pattern_ngram(results):
     signals = []
 
     # Forward
-    for order in (3, 4, 5, 6):
+    for order in (3, 4, 5, 6, 7):
         if len(bits) < order + 10:
             continue
         cur = bits[:order]
@@ -364,7 +432,7 @@ def lc79_pattern_ngram(results):
             continue
         p_tai = (tai_next + BAYES_PRIOR_ALPHA) / (total + 2 * BAYES_PRIOR_ALPHA)
         ratio = max(p_tai, 1 - p_tai)
-        if ratio < 0.62:
+        if ratio < 0.60:
             continue
         signals.append({
             'pred': "Tài" if p_tai >= 0.5 else "Xỉu",
@@ -372,7 +440,7 @@ def lc79_pattern_ngram(results):
         })
 
     # Backward
-    for order in (3, 4, 5):
+    for order in (3, 4, 5, 6):
         if len(bits) < order + 10:
             continue
         cur = bits[:order][::-1]
@@ -388,7 +456,7 @@ def lc79_pattern_ngram(results):
             continue
         p_tai = (tai_next + BAYES_PRIOR_ALPHA) / (total + 2 * BAYES_PRIOR_ALPHA)
         ratio = max(p_tai, 1 - p_tai)
-        if ratio < 0.65:
+        if ratio < 0.63:
             continue
         signals.append({
             'pred': "Tài" if p_tai >= 0.5 else "Xỉu",
@@ -396,7 +464,7 @@ def lc79_pattern_ngram(results):
         })
 
     # Skip-gram
-    for order in (4, 5):
+    for order in (4, 5, 6):
         if len(bits) < order + 12:
             continue
         for skip_pos in range(1, order - 1):
@@ -414,7 +482,7 @@ def lc79_pattern_ngram(results):
                 continue
             p_tai = (tai_next + BAYES_PRIOR_ALPHA) / (total + 2 * BAYES_PRIOR_ALPHA)
             ratio = max(p_tai, 1 - p_tai)
-            if ratio < 0.68:
+            if ratio < 0.65:
                 continue
             signals.append({
                 'pred': "Tài" if p_tai >= 0.5 else "Xỉu",
@@ -426,7 +494,7 @@ def lc79_pattern_ngram(results):
 
     st = sx = 0.0
     for s in signals:
-        type_bonus = {'forward': 1.0, 'backward': 1.3, 'skipgram': 1.4}.get(s['type'], 1.0)
+        type_bonus = {'forward': 1.0, 'backward': 1.35, 'skipgram': 1.45}.get(s['type'], 1.0)
         w = s['ratio'] * math.log2(s['samples'] + 1) * (s['order'] - 1) * type_bonus
         if s['pred'] == "Tài":
             st += w
@@ -438,8 +506,8 @@ def lc79_pattern_ngram(results):
 
     pred = "Tài" if st > sx else "Xỉu"
     ratio = max(st, sx) / (st + sx)
-    weight = 10 + int((ratio - 0.6) * 40) + len(signals) * 2
-    weight = max(10, min(25, weight))
+    weight = 10 + int((ratio - 0.6) * 45) + len(signals) * 2
+    weight = max(10, min(27, weight))
 
     return (pred, weight, {
         "ratio": round(ratio, 3),
@@ -450,7 +518,7 @@ def lc79_pattern_ngram(results):
 
 
 # =====================================================================
-# TẦNG 5: MARKOV (ORDER 2+3 ENSEMBLE)
+# TẦNG 5: MARKOV (ORDER 2+3+4 ENSEMBLE)
 # =====================================================================
 def lc79_markov2(results):
     if len(results) < 25:
@@ -461,7 +529,7 @@ def lc79_markov2(results):
         return None
 
     signals = []
-    for order in (2, 3):
+    for order in (2, 3, 4):
         if len(bits) < order + 10:
             continue
         cur_state = bits[:order]
@@ -475,12 +543,12 @@ def lc79_markov2(results):
         if not d:
             continue
         tot = d["Tài"] + d["Xỉu"]
-        if tot < 5:
+        if tot < 4:
             continue
 
         p_tai = (d["Tài"] + BAYES_PRIOR_ALPHA) / (tot + 2 * BAYES_PRIOR_ALPHA)
         ratio = max(p_tai, 1 - p_tai)
-        if ratio < 0.6:
+        if ratio < 0.58:
             continue
         signals.append({
             'pred': "Tài" if p_tai >= 0.5 else "Xỉu",
@@ -503,8 +571,8 @@ def lc79_markov2(results):
 
     pred = "Tài" if st > sx else "Xỉu"
     ratio = max(st, sx) / (st + sx)
-    weight = 8 + int((ratio - 0.55) * 40) + len(signals) * 2
-    weight = max(8, min(22, weight))
+    weight = 8 + int((ratio - 0.55) * 45) + len(signals) * 2
+    weight = max(8, min(23, weight))
 
     return (pred, weight, {
         "ratio": round(ratio, 3),
@@ -535,12 +603,12 @@ def lc79_bayesian_recency(results):
 
     p_tai = weighted_tai / total
     ratio = max(p_tai, 1 - p_tai)
-    if ratio < 0.63:
+    if ratio < 0.60:
         return None
 
     pred = "Tài" if p_tai >= 0.5 else "Xỉu"
-    weight = 7 + int((ratio - 0.6) * 35)
-    weight = max(7, min(18, weight))
+    weight = 7 + int((ratio - 0.6) * 40)
+    weight = max(7, min(19, weight))
 
     return (pred, weight, {
         "p_tai": round(p_tai, 3), "ratio": round(ratio, 3), "window": n,
@@ -551,7 +619,7 @@ def lc79_bayesian_recency(results):
 # TẦNG 7: STREAK PRESSURE
 # =====================================================================
 def lc79_streak_pressure(results):
-    if len(results) < 30:
+    if len(results) < 20:
         return None
 
     streak = 1
@@ -570,8 +638,8 @@ def lc79_streak_pressure(results):
         return None
     avg_group = sum(past_groups) / len(past_groups)
 
-    if streak >= 5 and streak >= avg_group * 1.8:
-        w = 10 + min(5, int(streak / 2))
+    if streak >= 4 and streak >= avg_group * 1.6:
+        w = 10 + min(6, int(streak / 2))
         return (_opp(results[0]), w, {
             "type": "streak_break", "streak": streak,
             "avg_group": round(avg_group, 2),
@@ -626,7 +694,7 @@ def lc79_dice_analysis(dice_sums):
 
 
 # =====================================================================
-# TẦNG 9 MỚI: MD5 HASH CLUSTER
+# TẦNG 9: DEEP MD5 HASH CLUSTER
 # =====================================================================
 def lc79_md5_cluster(results):
     if len(results) < 25:
@@ -634,41 +702,48 @@ def lc79_md5_cluster(results):
 
     bits = _to_bits(results)
     cur_prefix = _md5(bits[:5])[:3]
+    cur_deep = _md5(bits[:5] + bits[:2])[:4]
 
     cluster = []
+    deep_cluster = []
     for i in range(1, len(bits) - 5):
         h = _md5(bits[i:i + 5])[:3]
         if h == cur_prefix:
             cluster.append(bits[i - 1])
+            deep_seg = _md5(bits[i:i + 5] + bits[i:i + 2])[:4]
+            if deep_seg == cur_deep:
+                deep_cluster.append(bits[i - 1])
 
-    if len(cluster) < CLUSTER_MIN_SAMPLES:
+    target = deep_cluster if len(deep_cluster) >= CLUSTER_MIN_SAMPLES else cluster
+    if len(target) < CLUSTER_MIN_SAMPLES:
         return None
 
-    tai = cluster.count("1")
-    xiu = cluster.count("0")
-    total = len(cluster)
+    tai = target.count("1")
+    xiu = target.count("0")
+    total = len(target)
     p_tai = (tai + BAYES_PRIOR_ALPHA) / (total + 2 * BAYES_PRIOR_ALPHA)
     ratio = max(p_tai, 1 - p_tai)
-    if ratio < 0.65:
+    if ratio < 0.62:
         return None
 
     pred = "Tài" if p_tai >= 0.5 else "Xỉu"
-    weight = 9 + int((ratio - 0.6) * 40) + min(3, total // 5)
-    weight = max(9, min(21, weight))
+    weight = 9 + int((ratio - 0.6) * 45) + min(4, total // 5)
+    weight = max(9, min(23, weight))
 
     return (pred, weight, {
         "cluster_prefix": cur_prefix,
         "cluster_size": total,
+        "deep_hit": len(deep_cluster) >= CLUSTER_MIN_SAMPLES,
         "tai": tai, "xiu": xiu,
         "ratio": round(ratio, 3),
     })
 
 
 # =====================================================================
-# TẦNG 10 MỚI: CYCLE DETECTOR
+# TẦNG 10: CYCLE DETECTOR
 # =====================================================================
 def lc79_cycle_detector(results):
-    if len(results) < 24:
+    if len(results) < 18:
         return None
 
     best = None
@@ -701,8 +776,8 @@ def lc79_cycle_detector(results):
     if not best:
         return None
 
-    weight = 8 + int(best['confidence'] * 15)
-    weight = max(8, min(20, weight))
+    weight = 8 + int(best['confidence'] * 17)
+    weight = max(8, min(22, weight))
 
     return (best['pred'], weight, {
         "type": "cycle",
@@ -712,7 +787,7 @@ def lc79_cycle_detector(results):
 
 
 # =====================================================================
-# TẦNG 11 MỚI: BAYESIAN DRIFT
+# TẦNG 11: BAYESIAN DRIFT
 # =====================================================================
 def lc79_bayesian_drift(results):
     if len(results) < 30:
@@ -725,20 +800,20 @@ def lc79_bayesian_drift(results):
     new_tai_rate = new_window.count("Tài") / len(new_window)
     drift = new_tai_rate - old_tai_rate
 
-    if abs(drift) < 0.25:
+    if abs(drift) < 0.22:
         return None
 
-    if new_tai_rate > 0.65:
+    if new_tai_rate > 0.63:
         pred = "Tài"
         strength = (new_tai_rate - 0.5) * 2
-    elif new_tai_rate < 0.35:
+    elif new_tai_rate < 0.37:
         pred = "Xỉu"
         strength = (0.5 - new_tai_rate) * 2
     else:
         return None
 
-    weight = 7 + int(strength * 8)
-    weight = max(7, min(15, weight))
+    weight = 7 + int(strength * 9)
+    weight = max(7, min(16, weight))
 
     return (pred, weight, {
         "type": "drift",
@@ -749,7 +824,7 @@ def lc79_bayesian_drift(results):
 
 
 # =====================================================================
-# TẦNG 12 MỚI: MULTI-WINDOW CONSENSUS
+# TẦNG 12: MULTI-WINDOW CONSENSUS
 # =====================================================================
 def lc79_multi_window_consensus(results):
     if len(results) < 20:
@@ -763,11 +838,16 @@ def lc79_multi_window_consensus(results):
         tai = window.count("Tài")
         p_tai = tai / ws
 
-        if ws <= 8:
-            if p_tai >= 0.65:
+        if ws <= 5:
+            if p_tai >= 0.6:
                 votes.append(("Tài", 1.0))
-            elif p_tai <= 0.35:
+            elif p_tai <= 0.4:
                 votes.append(("Xỉu", 1.0))
+        elif ws <= 8:
+            if p_tai >= 0.625:
+                votes.append(("Tài", 0.9))
+            elif p_tai <= 0.375:
+                votes.append(("Xỉu", 0.9))
         else:
             if p_tai >= 0.70:
                 votes.append(("Xỉu", 0.8))
@@ -785,11 +865,11 @@ def lc79_multi_window_consensus(results):
 
     pred = "Tài" if st > sx else "Xỉu"
     ratio = max(st, sx) / (st + sx)
-    if ratio < 0.6:
+    if ratio < 0.58:
         return None
 
-    weight = 7 + int((ratio - 0.6) * 30) + len(votes) * 2
-    weight = max(7, min(18, weight))
+    weight = 7 + int((ratio - 0.6) * 35) + len(votes) * 2
+    weight = max(7, min(20, weight))
 
     return (pred, weight, {
         "type": "multi_window",
@@ -899,7 +979,7 @@ def lc79_predict(results, dice_sums=None):
     conf = max(CONFIDENCE_FLOOR, min(CONFIDENCE_CEIL, base_conf))
 
     meta = {
-        "mode": "lc79_md5_pro_v2",
+        "mode": "lc79_md5_deep_pro_v3",
         "n_layers": n_layers,
         "agree": agree_layers,
         "ratio": round(ratio, 3),
@@ -912,27 +992,53 @@ def lc79_predict(results, dice_sums=None):
 
 
 # =====================================================================
-# ADAPTIVE RECOVERY
+# ADAPTIVE RECOVERY - FIX GÃY CẦU 2-3 TAY + BẺ CẦU ĐẢO NGHỊCH
 # =====================================================================
 def apply_recovery(base_pred, conf, loss_streak, results=None):
-    if loss_streak < 2:
+    """
+    Fix gãy cầu 2-3 tay:
+    - Thua 2 tay: bẻ nhẹ nếu conf thấp, giữ nếu conf cao
+    - Thua 3 tay: bẻ mạnh + tăng conf
+    - Thua 4+ tay: bẻ hoàn toàn
+    - Phát hiện xu hướng đảo nghịch để tăng độ chính xác
+    """
+    # Chưa thua gì → giữ nguyên
+    if loss_streak < BREAK_STREAK_THRESHOLD:
         return base_pred, conf, False, None
 
-    if results and len(results) >= 15:
-        e = _entropy(results[:20] if len(results) >= 20 else results)
-        if e >= 0.95 and loss_streak < 4:
-            return base_pred, max(50, conf - 6), False, "high_entropy_hold"
+    # Phân tích xu hướng để quyết định bẻ thông minh
+    trend_hint = None
+    if results and len(results) >= 10:
+        trend = _detect_trend(results, TREND_REVERSE_WINDOW)
+        alt = _detect_alt_pattern(results)
+        if trend:
+            trend_hint = trend['type']
+        if alt:
+            # Nếu đang cầu 1-1 mà thua → đảo ngay
+            return _opp(base_pred), min(92, conf + 12), True, "alt_1_1_flip"
 
-    if loss_streak >= 5:
-        return _opp(base_pred), min(92, conf + 16), True, "flip_5plus"
-    if loss_streak == 4:
-        return _opp(base_pred), min(90, conf + 13), True, "flip_4"
-    if loss_streak == 3:
-        return _opp(base_pred), min(88, conf + 10), True, "flip_3"
+    # Thua 2 tay
     if loss_streak == 2:
-        if conf < 70:
-            return _opp(base_pred), min(87, conf + 7), True, "flip_2"
-        return base_pred, max(50, conf - 10), False, "penalty_2"
+        if conf < 72:
+            return _opp(base_pred), min(88, conf + 8), True, "flip_2_low_conf"
+        # Conf cao → có thể cầu sắp về, giảm conf + giữ
+        return base_pred, max(50, conf - 8), False, "hold_2_high_conf"
+
+    # Thua 3 tay → bẻ mạnh
+    if loss_streak == 3:
+        # Nếu xu hướng đảo nghịch → bẻ tự tin hơn
+        if trend_hint == 'trend_reverse':
+            return _opp(base_pred), min(92, conf + 14), True, "flip_3_trend_reverse"
+        return _opp(base_pred), min(90, conf + 10), True, "flip_3"
+
+    # Thua 4 tay
+    if loss_streak == 4:
+        return _opp(base_pred), min(91, conf + 13), True, "flip_4"
+
+    # Thua 5+ tay → bẻ hoàn toàn
+    if loss_streak >= 5:
+        return _opp(base_pred), min(93, conf + 15), True, "flip_5plus"
+
     return base_pred, conf, False, None
 
 
@@ -1043,7 +1149,7 @@ def compute_loss_streak(valid, max_scan=25):
 
 
 # =====================================================================
-# HTML TEMPLATE — GIỮ NGUYÊN: 4 CỘT + THỐNG KÊ
+# HTML TEMPLATE — GIỮ NGUYÊN HOÀN TOÀN
 # =====================================================================
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -1334,7 +1440,7 @@ def predict():
         pred, conf, flipped, reason = apply_recovery(base_pred, base_conf, loss_streak, results)
 
         return jsonify({
-            'algorithm': 'LC79_MD5_PRO_V2',
+            'algorithm': 'LC79_MD5_DEEP_PRO_V3',
             'last_phien': valid[-1]['phien'],
             'next_phien': valid[-1]['phien'] + 1,
             'last_result': valid[-1]['result'],
@@ -1388,7 +1494,7 @@ def betvipmd5():
 
         return jsonify({
             'id': '@cskhleminh',
-            'algorithm': 'LC79_HU_V2',
+            'algorithm': 'LC79_DEEP_V3',
             'phien': str(next_phien),
             'ket_qua': ket_qua_str,
             'du_doan': pred,
@@ -1421,7 +1527,7 @@ def reset_api():
                     'status': 'success',
                     'reset_to': RESET_ID,
                     'bootstrap': True,
-                    'algorithm': 'LC79_MD5_PRO_V2',
+                    'algorithm': 'LC79_MD5_DEEP_PRO_V3',
                     'message': 'Đã reset - sẵn sàng dự đoán ngay phiên kế tiếp'
                 })
         return jsonify({'status': 'error', 'message': 'Lỗi mạng, không thể xác nhận mốc Reset'}), 400
