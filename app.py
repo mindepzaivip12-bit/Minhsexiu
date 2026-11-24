@@ -273,101 +273,216 @@ def _stable_jitter(results, span=2):
 
 
 # =====================================================================
-# 🧠 ALTERNATING DETECTOR — ĐẢO THUẬN NGHỊCH 1-1
+# 🧠 ALTERNATING DETECTOR v2 — ĐẢO THUẬN NGHỊCH 1-1 CHUYÊN SÂU
 # =====================================================================
 
 class AlternatingDetector:
+    """
+    Phát hiện cầu đảo 1-1 (T-X-T-X, X-T-X-T) và các biến thể:
+      - alt1-1 : Đảo 1-1 thuần (period 1-1)
+      - alt2-2 : Đảo 2-2 (TT-XX-TT)
+      - alt3-3 : Đảo 3-3 (TTT-XXX)
+      - alt1-2 : Đảo 1-2 (T-XX-T-XX)
+      - alt2-1 : Đảo 2-1 (TT-X-TT-X)
+    Trả về: (prob_continuing, confidence, alt_type)
+    """
+
+    # Ngưỡng
+    STRONG_MATCH = 0.75
+    MIN_BLOCKS = 3
+    OVERRIDE_CONF = 0.62        # Dùng cho override trong Engine
+    ALT_PRIORITY = {"alt1-1": 1.15, "alt2-2": 1.00, "alt1-2": 0.95,
+                    "alt2-1": 0.95, "alt3-3": 0.90}
+
     @staticmethod
     def detect(seq):
-        if len(seq) < 3:
-            return 0.0, 0.0, "none"
+        """Trả về (p_alt, confidence, alt_type)."""
+        if len(seq) < 4:
+            return 0.5, 0.0, "none"
 
-        s = _tx(seq)
-        alt1 = AlternatingDetector._match_period(s, 1, 6)
-        alt2 = AlternatingDetector._match_period(s, 2, 8)
-        alt3 = AlternatingDetector._match_period(s, 3, 9)
+        s = _tx(seq)   # chuỗi T/X, mới nhất ở vị trí 0
 
+        # Chạy tất cả các detector
         candidates = [
-            ("alt1", alt1, 0.92),
-            ("alt2", alt2, 0.80),
-            ("alt3", alt3, 0.70),
+            AlternatingDetector._detect_alternating(s, 1, 1, "alt1-1", max_blocks=12),
+            AlternatingDetector._detect_alternating(s, 2, 2, "alt2-2", max_blocks=6),
+            AlternatingDetector._detect_alternating(s, 3, 3, "alt3-3", max_blocks=4),
+            AlternatingDetector._detect_alternating(s, 1, 2, "alt1-2", max_blocks=6),
+            AlternatingDetector._detect_alternating(s, 2, 1, "alt2-1", max_blocks=6),
         ]
 
-        best_type = "none"
-        best_score = 0.0
-        best_conf = 0.0
-        for name, score, cap in candidates:
-            if score > best_score:
-                best_score = score
-                best_type = name
-                best_conf = min(1.0, score * cap)
+        # Loại bỏ các candidate không có tín hiệu
+        valid = [c for c in candidates if c[1] > 0]
+        if not valid:
+            return 0.5, 0.0, "none"
 
-        if best_score < 0.35:
-            return 0.0, 0.0, "none"
+        # Chọn candidate tốt nhất (có confidence cao nhất, ưu tiên alt1-1)
+        best = max(valid, key=lambda x: x[1] * AlternatingDetector.ALT_PRIORITY.get(x[2], 0.9))
+        p_alt, conf, alt_type = best
 
-        p_alt = 0.5 + (best_score - 0.5) * 2
-        p_alt = min(0.98, max(0.5, p_alt))
-        return p_alt, best_conf, best_type
+        # Ngưỡng tối thiểu để coi là có cầu đảo
+        if conf < 0.30:
+            return 0.5, 0.0, "none"
+
+        return p_alt, conf, alt_type
 
     @staticmethod
-    def _match_period(s, period, max_check):
-        if len(s) < period * 2 + 1:
-            return 0.0
-        tail = s[:period * 2]
-        block_a = tail[:period]
-        block_b = tail[period:period * 2]
-        if block_a == block_b:
-            return 0.0
+    def _detect_alternating(s, a_len, b_len, name, max_blocks=8):
+        """
+        Phát hiện chuỗi đảo dạng [block_a][block_b][block_a][block_b]...
+        - s: chuỗi T/X, mới nhất ở index 0
+        - a_len, b_len: độ dài 2 block
+        - name: tên loại (alt1-1, alt2-2, ...)
+        - max_blocks: số block tối đa quét
 
-        matched_blocks = 0
-        max_blocks = min(max_check // period, len(s) // period)
-        for i in range(max_blocks):
-            start = i * period
-            end = start + period
+        Trả về: (p_continuing, confidence, name)
+        """
+        period = a_len + b_len
+        if len(s) < period * 2:
+            return 0.5, 0.0, name
+
+        # Xác định 2 block mẫu từ 2 block gần nhất
+        block_a = s[0:a_len]           # gần nhất
+        block_b = s[a_len:period]      # kế tiếp
+
+        # Nếu 2 block mẫu giống hệt → không phải đảo
+        if block_a == block_b:
+            return 0.5, 0.0, name
+
+        # Đếm số block khớp mẫu
+        matched = 0
+        checked = 0
+        max_check = min(max_blocks * period, len(s))
+
+        for i in range(0, max_check, period):
+            end = i + period
             if end > len(s):
                 break
-            block = s[start:end]
-            expected = block_a if i % 2 == 0 else block_b
-            if block == expected:
-                matched_blocks += 1
+
+            # Block hiện tại phải khớp: chẵn → block_a, lẻ → block_b
+            if i // period % 2 == 0:
+                expected = block_a
+                actual = s[i:i + a_len]
+            else:
+                expected = block_b
+                actual = s[i:i + b_len]
+
+            # So sánh theo đúng độ dài block tương ứng
+            if actual == expected:
+                matched += 1
+            else:
+                break
+            checked += 1
+
+        # Cần tối thiểu MIN_BLOCKS block khớp
+        if matched < AlternatingDetector.MIN_BLOCKS:
+            return 0.5, 0.0, name
+
+        # Base match ratio
+        match_ratio = matched / max(checked, matched)
+
+        # Confidence tăng theo số block khớp
+        conf = match_ratio
+        if matched >= 4: conf += 0.08
+        if matched >= 6: conf += 0.08
+        if matched >= 8: conf += 0.06
+        if checked < matched: checked = matched
+        conf = min(1.0, conf)
+
+        # Nếu đang ở block kế tiếp, xác định giá trị tiếp theo
+        # block tiếp theo (index matched) phải là: chẵn → block_a, lẻ → block_b
+        next_block_idx = matched
+        next_is_a = (next_block_idx % 2 == 0)
+        next_block = block_a if next_is_a else block_b
+
+        # Xác suất phần tử kế tiếp là "T"
+        next_len = a_len if next_is_a else b_len
+        # Vì block phải khớp hoàn toàn, phần tử đầu tiên của next_block chính là kết quả dự đoán
+        if next_block:
+            pred_char = next_block[0]
+            # p_continuing = xác suất pattern đảo tiếp tục
+            p_continuing = conf
+        else:
+            return 0.5, 0.0, name
+
+        return p_continuing, conf, name
+
+    @staticmethod
+    def predict_next(seq):
+        """
+        Wrapper tiện dụng: trả về (predicted_value, confidence, alt_type).
+        predicted_value = "Tài" | "Xỉu" | None
+        """
+        if not seq:
+            return None, 0.0, "none"
+
+        p_alt, conf, alt_type = AlternatingDetector.detect(seq)
+        if alt_type == "none":
+            return None, 0.0, "none"
+
+        s = _tx(seq)
+        period_map = {
+            "alt1-1": (1, 1), "alt2-2": (2, 2), "alt3-3": (3, 3),
+            "alt1-2": (1, 2), "alt2-1": (2, 1),
+        }
+        a_len, b_len = period_map[alt_type]
+        period = a_len + b_len
+
+        # Đếm số block đã khớp để xác định block kế tiếp
+        block_a = s[0:a_len]
+        block_b = s[a_len:period]
+        matched = 0
+        max_check = min(12 * period, len(s))
+        for i in range(0, max_check, period):
+            end = i + period
+            if end > len(s):
+                break
+            if i // period % 2 == 0:
+                expected = block_a
+                actual = s[i:i + a_len]
+            else:
+                expected = block_b
+                actual = s[i:i + b_len]
+            if actual == expected:
+                matched += 1
             else:
                 break
 
-        if matched_blocks < 2:
-            return 0.0
+        next_is_a = (matched % 2 == 0)
+        next_block = block_a if next_is_a else block_b
+        if not next_block:
+            return None, 0.0, alt_type
 
-        base = matched_blocks / max_blocks if max_blocks > 0 else 0.0
-        if matched_blocks >= 4:
-            base = min(1.0, base + 0.10)
-        if matched_blocks >= 6:
-            base = min(1.0, base + 0.10)
-        return base
+        pred_char = next_block[0]
+        pred_val = "Tài" if pred_char == "T" else "Xỉu"
+        return pred_val, conf, alt_type
 
 
 # =====================================================================
-# 🧠 HOUSE ENGINE v2 — DETERMINISTIC
+# 🧠 HOUSE ENGINE v3 — DETERMINISTIC + ALTERNATING PRIORITY
 # =====================================================================
 
 class HouseEngine:
     DEFAULT_WEIGHTS = {
-        "markov1": 0.14,
-        "markov2": 0.18,
-        "markov3": 0.10,
-        "pattern_memory": 0.16,
-        "multi_tf": 0.12,
-        "streak_physics": 0.08,
+        "markov1": 0.12,
+        "markov2": 0.16,
+        "markov3": 0.08,
+        "pattern_memory": 0.14,
+        "multi_tf": 0.10,
+        "streak_physics": 0.07,
         "bias_detector": 0.05,
-        "alternating": 0.17,
+        "alternating": 0.28,     # ⭐ tăng ưu tiên đảo thuận nghịch
     }
 
-    ALT_OVERRIDE_THRESHOLD = 0.62
-    ALT_OVERRIDE_MARGIN = 0.08
+    ALT_OVERRIDE_THRESHOLD = 0.60
+    ALT_OVERRIDE_MARGIN = 0.06
 
     def __init__(self):
         self.weights = dict(self.DEFAULT_WEIGHTS)
         self.recent_perf = []
         self.alt_perf = []
         self.last_alt_type = "none"
+        self.last_alt_conf = 0.0
 
     # ------------------ STATIC FEATURES ------------------
 
@@ -491,6 +606,7 @@ class HouseEngine:
         self.recent_perf = []
         self.alt_perf = []
         self.last_alt_type = "none"
+        self.last_alt_conf = 0.0
 
     def update_performance(self, pred, actual):
         if pred in ("Tài", "Xỉu") and actual in ("Tài", "Xỉu"):
@@ -511,19 +627,20 @@ class HouseEngine:
         w = dict(self.weights)
         if acc < 0.45:
             w["bias_detector"] = min(0.20, w["bias_detector"] + 0.05)
-            w["markov1"] = max(0.10, w["markov1"] - 0.03)
-            w["pattern_memory"] = max(0.10, w["pattern_memory"] - 0.03)
+            w["markov1"] = max(0.08, w["markov1"] - 0.03)
+            w["pattern_memory"] = max(0.08, w["pattern_memory"] - 0.03)
         elif acc > 0.60:
-            w["pattern_memory"] = min(0.25, w["pattern_memory"] + 0.03)
-            w["markov2"] = min(0.28, w["markov2"] + 0.02)
+            w["pattern_memory"] = min(0.22, w["pattern_memory"] + 0.03)
+            w["markov2"] = min(0.24, w["markov2"] + 0.02)
             w["bias_detector"] = max(0.03, w["bias_detector"] - 0.02)
 
+        # Adaptive cho alternating
         if len(self.alt_perf) >= 8:
             alt_acc = sum(self.alt_perf) / len(self.alt_perf)
-            if alt_acc < 0.4:
-                w["alternating"] = max(0.08, w["alternating"] - 0.04)
+            if alt_acc < 0.40:
+                w["alternating"] = max(0.12, w["alternating"] - 0.04)
             elif alt_acc > 0.65:
-                w["alternating"] = min(0.28, w["alternating"] + 0.04)
+                w["alternating"] = min(0.36, w["alternating"] + 0.04)
 
         s = sum(w.values())
         return {k: v / s for k, v in w.items()}
@@ -579,15 +696,15 @@ class HouseEngine:
         signals["bias_detector"] = self._bias_detector(results)
         supports["bias_detector"] = 0.6
 
-        p_alt, alt_conf, alt_type = AlternatingDetector.detect(results)
-        self.last_alt_type = alt_type if alt_conf > 0 else "none"
+        # ⭐ ALTERNATING — TRỌNG TÂM NÂNG CẤP
+        alt_pred, alt_conf, alt_type = AlternatingDetector.predict_next(results)
+        self.last_alt_type = alt_type
+        self.last_alt_conf = alt_conf
 
-        last = results[0]
-        if alt_type != "none" and alt_conf > 0:
-            alt_target = _opp(last)
-            alt_sign = 1.0 if alt_target == "Tài" else -1.0
+        if alt_type != "none" and alt_pred is not None and alt_conf > 0:
+            alt_sign = 1.0 if alt_pred == "Tài" else -1.0
             signals["alternating"] = alt_sign * min(1.0, alt_conf)
-            supports["alternating"] = min(1.0, alt_conf + 0.2)
+            supports["alternating"] = min(1.0, alt_conf + 0.15)
         else:
             signals["alternating"] = 0.0
             supports["alternating"] = 0.0
@@ -606,10 +723,10 @@ class HouseEngine:
 
         score = total_score / total_weight
 
+        # ⭐ OVERRIDE KHI ĐẢO 1-1 RÕ RÀNG
         override_active = False
-        if alt_type != "none" and p_alt >= self.ALT_OVERRIDE_THRESHOLD:
-            alt_target = _opp(last)
-            alt_sign = 1.0 if alt_target == "Tài" else -1.0
+        if alt_type == "alt1-1" and alt_conf >= self.ALT_OVERRIDE_THRESHOLD and alt_pred:
+            alt_sign = 1.0 if alt_pred == "Tài" else -1.0
             if score * alt_sign < self.ALT_OVERRIDE_MARGIN:
                 score = alt_sign * max(abs(score), self.ALT_OVERRIDE_MARGIN + 0.02)
                 override_active = True
@@ -627,32 +744,33 @@ class HouseEngine:
         conf_raw *= (1 - 0.25 * vol)
 
         if override_active:
-            conf_raw += 6
-        elif alt_type != "none" and alt_conf > 0.6:
-            alt_target = _opp(last)
-            if (pred == "Tài" and alt_target == "Tài") or (pred == "Xỉu" and alt_target == "Xỉu"):
-                conf_raw += 3
+            conf_raw += 8
+        elif alt_type != "none" and alt_conf > 0.6 and alt_pred:
+            if pred == alt_pred:
+                conf_raw += 4
 
-        if alt_type != "none" and alt_conf > 0.6 and not override_active:
-            alt_target = _opp(last)
-            if pred != alt_target:
+        if alt_type != "none" and alt_conf > 0.6 and not override_active and alt_pred:
+            if pred != alt_pred:
                 conf_raw -= 4
 
         conf = int(round(conf_raw))
         conf = max(52, min(MAX_CONFIDENCE, conf))
-        # ⭐ DETERMINISTIC JITTER — thay random.randint(-2, 2)
         conf += _stable_jitter(results, span=2)
         conf = max(52, min(MAX_CONFIDENCE, conf))
 
         seq5 = results[:5]
         pattern = _tx(seq5)
         flips = sum(1 for i in range(4) if seq5[i] != seq5[i + 1])
-        if alt_type == "alt1" and alt_conf > 0.5:
+        if alt_type == "alt1-1" and alt_conf > 0.5:
             mode = f"Đảo 1-1 ({int(alt_conf*100)}%)"
-        elif alt_type == "alt2":
+        elif alt_type == "alt2-2":
             mode = f"Đảo 2-2 ({int(alt_conf*100)}%)"
-        elif alt_type == "alt3":
+        elif alt_type == "alt1-2":
             mode = f"Đảo 1-2 ({int(alt_conf*100)}%)"
+        elif alt_type == "alt2-1":
+            mode = f"Đảo 2-1 ({int(alt_conf*100)}%)"
+        elif alt_type == "alt3-3":
+            mode = f"Đảo 3-3 ({int(alt_conf*100)}%)"
         elif flips == 4:
             mode = "Đảo 1-1"
         elif flips <= 2:
@@ -783,12 +901,11 @@ def history():
         if not valid:
             return jsonify({'rows': [], 'stats': {'total': 0, 'correct': 0}})
 
-        # ⭐ Backtest deterministic — cache theo (reset_id, phien)
         cache = run_deterministic_backtest(valid, RESET_ID)
 
         # Dự đoán phiên TIẾP THEO (chưa có kết quả)
         history_rev = [v['result'] for v in valid][::-1]
-        next_pred, next_conf, _ = ENGINE.predict(history_rev)
+        next_pred, next_conf, next_label = ENGINE.predict(history_rev)
         next_phien = valid[-1]['phien'] + 1
 
         out = [{
@@ -800,12 +917,13 @@ def history():
             'is_correct': None,
             'conf': next_conf,
             'recovery_flipped': False,
-            'loss_streak': 0
+            'loss_streak': 0,
+            'label': next_label
         }]
 
         correct_count = 0
         total_past = 0
-        for v in reversed(valid[-150:]):   # 150 phiên gần nhất, mới nhất trước
+        for v in reversed(valid[-150:]):
             phien = v['phien']
             cache_key = (RESET_ID, phien)
             if cache_key not in cache:
@@ -849,7 +967,6 @@ def predict():
         if not valid:
             return jsonify({'error': 'Chưa có dữ liệu'})
 
-        # Replay deterministic để engine có state giống hệt /api/history
         run_deterministic_backtest(valid, RESET_ID)
 
         results = [v['result'] for v in valid][::-1]
@@ -865,6 +982,63 @@ def predict():
             'loss_streak': 0,
             'ls_5p': ls_5p,
             'pattern_label': pattern_label,
+            'alternating_type': ENGINE.last_alt_type,
+            'alternating_conf': round(ENGINE.last_alt_conf, 3),
+            'deterministic': True,
+            'timestamp': datetime.now().isoformat()
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)})
+
+
+@app.route('/api/alternating')
+def alternating_api():
+    """
+    API chuyên biệt: chỉ phân tích cầu đảo thuận nghịch 1-1
+    """
+    global RESET_ID
+    try:
+        raw_rows, _ = fetch_sessions()
+        if raw_rows:
+            for row in raw_rows:
+                HISTORY_CACHE[row['phien']] = row
+            for k in [k for k in HISTORY_CACHE if k < RESET_ID]:
+                del HISTORY_CACHE[k]
+
+        valid = sorted(HISTORY_CACHE.values(), key=lambda x: x['phien'])
+        if not valid:
+            return jsonify({'error': 'Chưa có dữ liệu'})
+
+        results = [v['result'] for v in valid][::-1]
+
+        # Detect thuần không qua Engine
+        p_alt, conf, alt_type = AlternatingDetector.detect(results)
+        alt_pred, alt_conf, alt_type2 = AlternatingDetector.predict_next(results)
+
+        # Lấy thêm snapshot 10 phiên
+        ls_10p = format_tx(results, 10) or ""
+        s_10 = _tx(results[:10]) if len(results) >= 10 else _tx(results)
+
+        # Đếm flip trong 10 phiên
+        flips_10 = sum(1 for i in range(len(s_10) - 1) if s_10[i] != s_10[i + 1])
+
+        return jsonify({
+            'last_phien': valid[-1]['phien'],
+            'next_phien': valid[-1]['phien'] + 1,
+            'is_alternating': alt_type != "none",
+            'alternating_type': alt_type,
+            'alternating_confidence': round(conf, 3),
+            'prob_continuing': round(p_alt, 3),
+            'prediction': alt_pred if alt_pred else "-",
+            'prediction_confidence': round(alt_conf, 3),
+            'ls_10p': ls_10p,
+            'flips_10p': flips_10,
+            'verdict': (
+                "ĐẢO 1-1 MẠNH" if alt_type == "alt1-1" and conf >= 0.70 else
+                "Đảo 1-1" if alt_type == "alt1-1" else
+                f"Đảo {alt_type.split('-')[0][-1]}-{alt_type.split('-')[1]}" if alt_type != "none" else
+                "Không có cầu đảo"
+            ),
             'deterministic': True,
             'timestamp': datetime.now().isoformat()
         })
@@ -902,6 +1076,8 @@ def lc79_api():
             'do_tin_cay': f"{conf}%",
             'ls_5p': ls_5p,
             'cau': pattern_label,
+            'alternating_type': ENGINE.last_alt_type,
+            'alternating_conf': round(ENGINE.last_alt_conf, 3),
             'auto_flip': False,
             'chuoi_thua': 0,
             'deterministic': True
@@ -920,7 +1096,7 @@ def reset_api():
             if valid:
                 RESET_ID = valid[-1]['phien']
                 HISTORY_CACHE = {valid[-1]['phien']: valid[-1]}
-                PREDICTION_CACHE = {}      # ⭐ xoá cache cũ
+                PREDICTION_CACHE = {}
                 ENGINE.reset_state()
                 return jsonify({'status': 'success', 'reset_to': RESET_ID})
         return jsonify({'status': 'error', 'message': 'Lỗi mạng'})
