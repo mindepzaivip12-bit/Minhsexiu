@@ -273,209 +273,140 @@ def _stable_jitter(results, span=2):
 
 
 # =====================================================================
-# 🧠 ALTERNATING DETECTOR v2 — ĐẢO THUẬN NGHỊCH 1-1 CHUYÊN SÂU
+# 🧠 PERFECT ALTERNATING 5 — ĐẢO NGHỊCH THUẬN 5 PHIÊN HOÀN CHỈNH
 # =====================================================================
 
-class AlternatingDetector:
+class PerfectAlternating5:
     """
-    Phát hiện cầu đảo 1-1 (T-X-T-X, X-T-X-T) và các biến thể:
-      - alt1-1 : Đảo 1-1 thuần (period 1-1)
-      - alt2-2 : Đảo 2-2 (TT-XX-TT)
-      - alt3-3 : Đảo 3-3 (TTT-XXX)
-      - alt1-2 : Đảo 1-2 (T-XX-T-XX)
-      - alt2-1 : Đảo 2-1 (TT-X-TT-X)
-    Trả về: (prob_continuing, confidence, alt_type)
+    Thuật toán MỚI — chỉ tập trung 5 phiên gần nhất.
+
+    Yêu cầu pattern đảo nghịch thuận HOÀN CHỈNH:
+      - 5 phiên gần nhất (mới nhất ở index 0) phải khớp CHÍNH XÁC
+        một trong các mẫu đảo hoàn chỉnh:
+          * alt1-1 : TXTXT / XTXTX  (đảo 1-1 thuần)
+          * alt2-2 : TTXXT / XXTTX  (đảo 2-2, 5 phiên đầu của chu kỳ 4)
+          * alt1-2 : TXXTX / XTTXT  (đảo 1-2)
+          * alt2-1 : TTXTT / XXTXX  (đảo 2-1)
+
+    Điểm mạnh:
+      - KHÔNG dùng pattern nhiễu (không chấp nhận sai 1 phiên).
+      - Confidence được tính từ:
+          + độ "hoàn hảo" của mẫu khớp (match score = 1.0 nếu khớp 100%)
+          + bonus nếu 5 phiên đảo liên tục không gãy
+          + penalty nếu mẫu khớp nhưng có phiên cuối lệch nhẹ
+      - Dự đoán phiên tiếp theo = phần tử kế tiếp trong chu kỳ đảo.
+
+    Trả về: (predicted_value, confidence, alt_type, pattern_str)
     """
 
-    # Ngưỡng
-    STRONG_MATCH = 0.75
-    MIN_BLOCKS = 3
-    OVERRIDE_CONF = 0.62        # Dùng cho override trong Engine
-    ALT_PRIORITY = {"alt1-1": 1.15, "alt2-2": 1.00, "alt1-2": 0.95,
-                    "alt2-1": 0.95, "alt3-3": 0.90}
+    # Bảng mẫu 5 phiên (mới nhất ở index 0) → dự đoán phiên kế tiếp
+    # Mỗi entry: pattern_5 (str) → (pred_char, alt_type, base_conf)
+    PATTERNS = {
+        # ===== ALT 1-1 THUẦN (đảo mỗi phiên) =====
+        "TXTXT": ("X", "alt1-1", 0.88),   # phiên kế = X
+        "XTXTX": ("T", "alt1-1", 0.88),   # phiên kế = T
+
+        # ===== ALT 2-2 (đảo 2-2) — 5 phiên đầu của chu kỳ 4 =====
+        "TTXXT": ("T", "alt2-2", 0.80),   # TT XX T → T
+        "XXTTX": ("X", "alt2-2", 0.80),   # XX TT X → X
+        "TXXTT": ("X", "alt2-2", 0.78),   # T XX TT → X
+        "XTTXX": ("T", "alt2-2", 0.78),   # X TT XX → T
+
+        # ===== ALT 1-2 =====
+        "TXXTX": ("T", "alt1-2", 0.76),   # T XX T X → T
+        "XTTXT": ("X", "alt1-2", 0.76),   # X TT X T → X
+        "TXTTX": ("X", "alt1-2", 0.74),   # T X TT X → X
+        "XTXXT": ("T", "alt1-2", 0.74),   # X T XX T → T
+
+        # ===== ALT 2-1 =====
+        "TTXTT": ("X", "alt2-1", 0.76),   # TT X TT → X
+        "XXTXX": ("T", "alt2-1", 0.76),   # XX T XX → T
+        "TXXTX_2": ("T", "alt2-1", 0.72), # fallback trùng key, sẽ bỏ
+    }
+
+    # Ngưỡng tối thiểu để coi là tín hiệu đảo
+    MIN_CONF = 0.60
 
     @staticmethod
-    def detect(seq):
-        """Trả về (p_alt, confidence, alt_type)."""
-        if len(seq) < 4:
-            return 0.5, 0.0, "none"
-
-        s = _tx(seq)   # chuỗi T/X, mới nhất ở vị trí 0
-
-        # Chạy tất cả các detector
-        candidates = [
-            AlternatingDetector._detect_alternating(s, 1, 1, "alt1-1", max_blocks=12),
-            AlternatingDetector._detect_alternating(s, 2, 2, "alt2-2", max_blocks=6),
-            AlternatingDetector._detect_alternating(s, 3, 3, "alt3-3", max_blocks=4),
-            AlternatingDetector._detect_alternating(s, 1, 2, "alt1-2", max_blocks=6),
-            AlternatingDetector._detect_alternating(s, 2, 1, "alt2-1", max_blocks=6),
-        ]
-
-        # Loại bỏ các candidate không có tín hiệu
-        valid = [c for c in candidates if c[1] > 0]
-        if not valid:
-            return 0.5, 0.0, "none"
-
-        # Chọn candidate tốt nhất (có confidence cao nhất, ưu tiên alt1-1)
-        best = max(valid, key=lambda x: x[1] * AlternatingDetector.ALT_PRIORITY.get(x[2], 0.9))
-        p_alt, conf, alt_type = best
-
-        # Ngưỡng tối thiểu để coi là có cầu đảo
-        if conf < 0.30:
-            return 0.5, 0.0, "none"
-
-        return p_alt, conf, alt_type
-
-    @staticmethod
-    def _detect_alternating(s, a_len, b_len, name, max_blocks=8):
+    def analyze(seq):
         """
-        Phát hiện chuỗi đảo dạng [block_a][block_b][block_a][block_b]...
-        - s: chuỗi T/X, mới nhất ở index 0
-        - a_len, b_len: độ dài 2 block
-        - name: tên loại (alt1-1, alt2-2, ...)
-        - max_blocks: số block tối đa quét
-
-        Trả về: (p_continuing, confidence, name)
+        seq: list kết quả "Tài"/"Xỉu", MỚI NHẤT ở index 0.
+        Trả về: (pred_value|None, confidence 0..1, alt_type, pattern_str)
         """
-        period = a_len + b_len
-        if len(s) < period * 2:
-            return 0.5, 0.0, name
+        if not seq or len(seq) < 5:
+            return None, 0.0, "none", "-"
 
-        # Xác định 2 block mẫu từ 2 block gần nhất
-        block_a = s[0:a_len]           # gần nhất
-        block_b = s[a_len:period]      # kế tiếp
+        s = _tx(seq[:5])  # 5 phiên gần nhất, mới nhất ở index 0
+        # s[0] = phiên mới nhất, s[4] = phiên cũ nhất trong cửa sổ
 
-        # Nếu 2 block mẫu giống hệt → không phải đảo
-        if block_a == block_b:
-            return 0.5, 0.0, name
+        # Tra bảng mẫu
+        entry = PerfectAlternating5.PATTERNS.get(s)
+        if entry is None:
+            return None, 0.0, "none", s
 
-        # Đếm số block khớp mẫu
-        matched = 0
-        checked = 0
-        max_check = min(max_blocks * period, len(s))
+        pred_char, alt_type, base_conf = entry
+        if pred_char is None:
+            return None, 0.0, "none", s
 
-        for i in range(0, max_check, period):
-            end = i + period
-            if end > len(s):
-                break
+        pred_val = "Tài" if pred_char == "T" else "Xỉu"
 
-            # Block hiện tại phải khớp: chẵn → block_a, lẻ → block_b
-            if i // period % 2 == 0:
-                expected = block_a
-                actual = s[i:i + a_len]
-            else:
-                expected = block_b
-                actual = s[i:i + b_len]
+        # ---------- TÍNH CONFIDENCE ĐỘNG ----------
+        conf = base_conf
 
-            # So sánh theo đúng độ dài block tương ứng
-            if actual == expected:
-                matched += 1
-            else:
-                break
-            checked += 1
-
-        # Cần tối thiểu MIN_BLOCKS block khớp
-        if matched < AlternatingDetector.MIN_BLOCKS:
-            return 0.5, 0.0, name
-
-        # Base match ratio
-        match_ratio = matched / max(checked, matched)
-
-        # Confidence tăng theo số block khớp
-        conf = match_ratio
-        if matched >= 4: conf += 0.08
-        if matched >= 6: conf += 0.08
-        if matched >= 8: conf += 0.06
-        if checked < matched: checked = matched
-        conf = min(1.0, conf)
-
-        # Nếu đang ở block kế tiếp, xác định giá trị tiếp theo
-        # block tiếp theo (index matched) phải là: chẵn → block_a, lẻ → block_b
-        next_block_idx = matched
-        next_is_a = (next_block_idx % 2 == 0)
-        next_block = block_a if next_is_a else block_b
-
-        # Xác suất phần tử kế tiếp là "T"
-        next_len = a_len if next_is_a else b_len
-        # Vì block phải khớp hoàn toàn, phần tử đầu tiên của next_block chính là kết quả dự đoán
-        if next_block:
-            pred_char = next_block[0]
-            # p_continuing = xác suất pattern đảo tiếp tục
-            p_continuing = conf
+        # Bonus nếu 5 phiên đảo liên tục (flip rate = 100%)
+        flips = sum(1 for i in range(4) if s[i] != s[i + 1])
+        if flips == 4:
+            conf += 0.04
+        elif flips == 3:
+            conf -= 0.02
         else:
-            return 0.5, 0.0, name
+            # Không phải đảo thuần → giảm mạnh
+            conf -= 0.10
 
-        return p_continuing, conf, name
+        # Bonus nếu phiên mới nhất khớp đúng hướng đảo của mẫu
+        # (mẫu đã khớp 100% nên chỉ cần xác nhận lại)
+        if s[0] != s[1]:
+            conf += 0.01
+
+        # Penalty nếu mẫu thuộc nhóm alt2-2/alt1-2/alt2-1 nhưng flip không đủ
+        if alt_type != "alt1-1" and flips < 3:
+            conf -= 0.05
+
+        conf = max(0.0, min(1.0, conf))
+        return pred_val, conf, alt_type, s
 
     @staticmethod
     def predict_next(seq):
-        """
-        Wrapper tiện dụng: trả về (predicted_value, confidence, alt_type).
-        predicted_value = "Tài" | "Xỉu" | None
-        """
-        if not seq:
-            return None, 0.0, "none"
+        """Wrapper: trả về (pred_value, confidence, alt_type)."""
+        pred, conf, alt_type, _ = PerfectAlternating5.analyze(seq)
+        return pred, conf, alt_type
 
-        p_alt, conf, alt_type = AlternatingDetector.detect(seq)
-        if alt_type == "none":
-            return None, 0.0, "none"
-
-        s = _tx(seq)
-        period_map = {
-            "alt1-1": (1, 1), "alt2-2": (2, 2), "alt3-3": (3, 3),
-            "alt1-2": (1, 2), "alt2-1": (2, 1),
-        }
-        a_len, b_len = period_map[alt_type]
-        period = a_len + b_len
-
-        # Đếm số block đã khớp để xác định block kế tiếp
-        block_a = s[0:a_len]
-        block_b = s[a_len:period]
-        matched = 0
-        max_check = min(12 * period, len(s))
-        for i in range(0, max_check, period):
-            end = i + period
-            if end > len(s):
-                break
-            if i // period % 2 == 0:
-                expected = block_a
-                actual = s[i:i + a_len]
-            else:
-                expected = block_b
-                actual = s[i:i + b_len]
-            if actual == expected:
-                matched += 1
-            else:
-                break
-
-        next_is_a = (matched % 2 == 0)
-        next_block = block_a if next_is_a else block_b
-        if not next_block:
-            return None, 0.0, alt_type
-
-        pred_char = next_block[0]
-        pred_val = "Tài" if pred_char == "T" else "Xỉu"
-        return pred_val, conf, alt_type
+    @staticmethod
+    def is_perfect(seq):
+        """True nếu 5 phiên gần nhất khớp 1 mẫu đảo hoàn chỉnh."""
+        pred, conf, alt_type, _ = PerfectAlternating5.analyze(seq)
+        return alt_type != "none" and conf >= PerfectAlternating5.MIN_CONF
 
 
 # =====================================================================
-# 🧠 HOUSE ENGINE v3 — DETERMINISTIC + ALTERNATING PRIORITY
+# 🧠 HOUSE ENGINE v4 — DETERMINISTIC + PERFECT ALTERNATING 5
 # =====================================================================
 
 class HouseEngine:
     DEFAULT_WEIGHTS = {
-        "markov1": 0.12,
-        "markov2": 0.16,
-        "markov3": 0.08,
-        "pattern_memory": 0.14,
-        "multi_tf": 0.10,
-        "streak_physics": 0.07,
-        "bias_detector": 0.05,
-        "alternating": 0.28,     # ⭐ tăng ưu tiên đảo thuận nghịch
+        "markov1": 0.10,
+        "markov2": 0.14,
+        "markov3": 0.06,
+        "pattern_memory": 0.10,
+        "multi_tf": 0.08,
+        "streak_physics": 0.06,
+        "bias_detector": 0.04,
+        "alternating5": 0.42,     # ⭐ TRỌNG TÂM: 5 phiên đảo hoàn chỉnh
     }
 
-    ALT_OVERRIDE_THRESHOLD = 0.60
-    ALT_OVERRIDE_MARGIN = 0.06
+    # Override khi tín hiệu đảo 5 phiên đủ mạnh
+    ALT5_OVERRIDE_THRESHOLD = 0.78
+    ALT5_OVERRIDE_MARGIN = 0.05
 
     def __init__(self):
         self.weights = dict(self.DEFAULT_WEIGHTS)
@@ -483,6 +414,7 @@ class HouseEngine:
         self.alt_perf = []
         self.last_alt_type = "none"
         self.last_alt_conf = 0.0
+        self.last_alt_pattern = "-"
 
     # ------------------ STATIC FEATURES ------------------
 
@@ -607,6 +539,7 @@ class HouseEngine:
         self.alt_perf = []
         self.last_alt_type = "none"
         self.last_alt_conf = 0.0
+        self.last_alt_pattern = "-"
 
     def update_performance(self, pred, actual):
         if pred in ("Tài", "Xỉu") and actual in ("Tài", "Xỉu"):
@@ -627,20 +560,20 @@ class HouseEngine:
         w = dict(self.weights)
         if acc < 0.45:
             w["bias_detector"] = min(0.20, w["bias_detector"] + 0.05)
-            w["markov1"] = max(0.08, w["markov1"] - 0.03)
-            w["pattern_memory"] = max(0.08, w["pattern_memory"] - 0.03)
+            w["markov1"] = max(0.06, w["markov1"] - 0.02)
+            w["pattern_memory"] = max(0.06, w["pattern_memory"] - 0.02)
         elif acc > 0.60:
-            w["pattern_memory"] = min(0.22, w["pattern_memory"] + 0.03)
-            w["markov2"] = min(0.24, w["markov2"] + 0.02)
-            w["bias_detector"] = max(0.03, w["bias_detector"] - 0.02)
+            w["pattern_memory"] = min(0.20, w["pattern_memory"] + 0.03)
+            w["markov2"] = min(0.22, w["markov2"] + 0.02)
+            w["bias_detector"] = max(0.02, w["bias_detector"] - 0.02)
 
-        # Adaptive cho alternating
+        # Adaptive riêng cho alternating5
         if len(self.alt_perf) >= 8:
             alt_acc = sum(self.alt_perf) / len(self.alt_perf)
             if alt_acc < 0.40:
-                w["alternating"] = max(0.12, w["alternating"] - 0.04)
+                w["alternating5"] = max(0.20, w["alternating5"] - 0.06)
             elif alt_acc > 0.65:
-                w["alternating"] = min(0.36, w["alternating"] + 0.04)
+                w["alternating5"] = min(0.52, w["alternating5"] + 0.06)
 
         s = sum(w.values())
         return {k: v / s for k, v in w.items()}
@@ -696,18 +629,20 @@ class HouseEngine:
         signals["bias_detector"] = self._bias_detector(results)
         supports["bias_detector"] = 0.6
 
-        # ⭐ ALTERNATING — TRỌNG TÂM NÂNG CẤP
-        alt_pred, alt_conf, alt_type = AlternatingDetector.predict_next(results)
-        self.last_alt_type = alt_type
-        self.last_alt_conf = alt_conf
+        # ⭐ PERFECT ALTERNATING 5 — TRỌNG TÂM
+        alt5_pred, alt5_conf, alt5_type, alt5_pattern = PerfectAlternating5.analyze(results)
+        self.last_alt_type = alt5_type
+        self.last_alt_conf = alt5_conf
+        self.last_alt_pattern = alt5_pattern
 
-        if alt_type != "none" and alt_pred is not None and alt_conf > 0:
-            alt_sign = 1.0 if alt_pred == "Tài" else -1.0
-            signals["alternating"] = alt_sign * min(1.0, alt_conf)
-            supports["alternating"] = min(1.0, alt_conf + 0.15)
+        if alt5_type != "none" and alt5_pred is not None and alt5_conf >= PerfectAlternating5.MIN_CONF:
+            alt_sign = 1.0 if alt5_pred == "Tài" else -1.0
+            # Signal mạnh: scale theo confidence
+            signals["alternating5"] = alt_sign * alt5_conf
+            supports["alternating5"] = min(1.0, alt5_conf + 0.20)
         else:
-            signals["alternating"] = 0.0
-            supports["alternating"] = 0.0
+            signals["alternating5"] = 0.0
+            supports["alternating5"] = 0.0
 
         w = self._adaptive_weights()
         total_score = 0.0
@@ -723,12 +658,13 @@ class HouseEngine:
 
         score = total_score / total_weight
 
-        # ⭐ OVERRIDE KHI ĐẢO 1-1 RÕ RÀNG
+        # ⭐ OVERRIDE KHI ĐẢO 5 PHIÊN HOÀN CHỈNH ĐỦ MẠNH
         override_active = False
-        if alt_type == "alt1-1" and alt_conf >= self.ALT_OVERRIDE_THRESHOLD and alt_pred:
-            alt_sign = 1.0 if alt_pred == "Tài" else -1.0
-            if score * alt_sign < self.ALT_OVERRIDE_MARGIN:
-                score = alt_sign * max(abs(score), self.ALT_OVERRIDE_MARGIN + 0.02)
+        if alt5_type != "none" and alt5_conf >= self.ALT5_OVERRIDE_THRESHOLD and alt5_pred:
+            alt_sign = 1.0 if alt5_pred == "Tài" else -1.0
+            # Nếu score không cùng hướng hoặc quá yếu → override
+            if score * alt_sign < self.ALT5_OVERRIDE_MARGIN:
+                score = alt_sign * max(abs(score), self.ALT5_OVERRIDE_MARGIN + 0.03)
                 override_active = True
 
         pred = "Tài" if score >= 0 else "Xỉu"
@@ -744,43 +680,43 @@ class HouseEngine:
         conf_raw *= (1 - 0.25 * vol)
 
         if override_active:
-            conf_raw += 8
-        elif alt_type != "none" and alt_conf > 0.6 and alt_pred:
-            if pred == alt_pred:
-                conf_raw += 4
+            conf_raw += 10
+        elif alt5_type != "none" and alt5_conf >= 0.75 and alt5_pred:
+            if pred == alt5_pred:
+                conf_raw += 5
 
-        if alt_type != "none" and alt_conf > 0.6 and not override_active and alt_pred:
-            if pred != alt_pred:
-                conf_raw -= 4
+        if alt5_type != "none" and alt5_conf >= 0.75 and not override_active and alt5_pred:
+            if pred != alt5_pred:
+                conf_raw -= 5
 
         conf = int(round(conf_raw))
         conf = max(52, min(MAX_CONFIDENCE, conf))
         conf += _stable_jitter(results, span=2)
         conf = max(52, min(MAX_CONFIDENCE, conf))
 
-        seq5 = results[:5]
-        pattern = _tx(seq5)
-        flips = sum(1 for i in range(4) if seq5[i] != seq5[i + 1])
-        if alt_type == "alt1-1" and alt_conf > 0.5:
-            mode = f"Đảo 1-1 ({int(alt_conf*100)}%)"
-        elif alt_type == "alt2-2":
-            mode = f"Đảo 2-2 ({int(alt_conf*100)}%)"
-        elif alt_type == "alt1-2":
-            mode = f"Đảo 1-2 ({int(alt_conf*100)}%)"
-        elif alt_type == "alt2-1":
-            mode = f"Đảo 2-1 ({int(alt_conf*100)}%)"
-        elif alt_type == "alt3-3":
-            mode = f"Đảo 3-3 ({int(alt_conf*100)}%)"
-        elif flips == 4:
-            mode = "Đảo 1-1"
-        elif flips <= 2:
-            mode = f"Bệt {self._streak_len(results)}P"
+        # Label hiển thị
+        if alt5_type != "none" and alt5_conf >= PerfectAlternating5.MIN_CONF:
+            type_label = {
+                "alt1-1": "Đảo 1-1",
+                "alt2-2": "Đảo 2-2",
+                "alt1-2": "Đảo 1-2",
+                "alt2-1": "Đảo 2-1",
+            }.get(alt5_type, alt5_type)
+            mode = f"{type_label} 5P ({int(alt5_conf*100)}%)"
         else:
-            mode = "Hỗn tạp"
+            seq5 = results[:5]
+            flips = sum(1 for i in range(4) if seq5[i] != seq5[i + 1])
+            if flips == 4:
+                mode = "Đảo 1-1"
+            elif flips <= 2:
+                mode = f"Bệt {self._streak_len(results)}P"
+            else:
+                mode = "Hỗn tạp"
 
         if override_active:
             mode += " ⚡OVR"
-        label = f"{mode} ({pattern}) | {sp_reason}{label_extra}"
+
+        label = f"{mode} ({alt5_pattern}) | {sp_reason}{label_extra}"
 
         return pred, conf, label
 
@@ -836,7 +772,7 @@ def run_deterministic_backtest(valid, reset_id):
                 x = len(history_rev) - t
                 if t > x: pred, conf = "Tài", 55
                 elif x > t: pred, conf = "Xỉu", 55
-                else: pred, conf, = history_rev[0], 52
+                else: pred, conf = history_rev[0], 52
                 label = "short-history"
             else:
                 pred, conf, label = "-", 50, "init"
@@ -984,6 +920,7 @@ def predict():
             'pattern_label': pattern_label,
             'alternating_type': ENGINE.last_alt_type,
             'alternating_conf': round(ENGINE.last_alt_conf, 3),
+            'alternating_pattern': ENGINE.last_alt_pattern,
             'deterministic': True,
             'timestamp': datetime.now().isoformat()
         })
@@ -994,7 +931,7 @@ def predict():
 @app.route('/api/alternating')
 def alternating_api():
     """
-    API chuyên biệt: chỉ phân tích cầu đảo thuận nghịch 1-1
+    API chuyên biệt: chỉ phân tích 5 phiên đảo nghịch thuận hoàn chỉnh
     """
     global RESET_ID
     try:
@@ -1011,34 +948,40 @@ def alternating_api():
 
         results = [v['result'] for v in valid][::-1]
 
-        # Detect thuần không qua Engine
-        p_alt, conf, alt_type = AlternatingDetector.detect(results)
-        alt_pred, alt_conf, alt_type2 = AlternatingDetector.predict_next(results)
+        # Phân tích 5 phiên đảo hoàn chỉnh
+        alt5_pred, alt5_conf, alt5_type, alt5_pattern = PerfectAlternating5.analyze(results)
+        is_perfect = PerfectAlternating5.is_perfect(results)
 
-        # Lấy thêm snapshot 10 phiên
-        ls_10p = format_tx(results, 10) or ""
-        s_10 = _tx(results[:10]) if len(results) >= 10 else _tx(results)
+        ls_5p = format_tx(results, 5) or "-"
+        ls_10p = format_tx(results, 10) or "-"
 
         # Đếm flip trong 10 phiên
+        s_10 = _tx(results[:10]) if len(results) >= 10 else _tx(results)
         flips_10 = sum(1 for i in range(len(s_10) - 1) if s_10[i] != s_10[i + 1])
+
+        # Verdict
+        if alt5_type == "alt1-1" and alt5_conf >= 0.85:
+            verdict = "ĐẢO 1-1 HOÀN HẢO 5P"
+        elif alt5_type == "alt1-1":
+            verdict = "Đảo 1-1 5P"
+        elif alt5_type != "none":
+            verdict = f"Đảo {alt5_type[3:]}-5P ({int(alt5_conf*100)}%)"
+        else:
+            verdict = "Không có cầu đảo 5P hoàn chỉnh"
 
         return jsonify({
             'last_phien': valid[-1]['phien'],
             'next_phien': valid[-1]['phien'] + 1,
-            'is_alternating': alt_type != "none",
-            'alternating_type': alt_type,
-            'alternating_confidence': round(conf, 3),
-            'prob_continuing': round(p_alt, 3),
-            'prediction': alt_pred if alt_pred else "-",
-            'prediction_confidence': round(alt_conf, 3),
+            'is_alternating': is_perfect,
+            'alternating_type': alt5_type,
+            'alternating_confidence': round(alt5_conf, 3),
+            'alternating_pattern': alt5_pattern,
+            'prediction': alt5_pred if alt5_pred else "-",
+            'prediction_confidence': round(alt5_conf, 3),
+            'ls_5p': ls_5p,
             'ls_10p': ls_10p,
             'flips_10p': flips_10,
-            'verdict': (
-                "ĐẢO 1-1 MẠNH" if alt_type == "alt1-1" and conf >= 0.70 else
-                "Đảo 1-1" if alt_type == "alt1-1" else
-                f"Đảo {alt_type.split('-')[0][-1]}-{alt_type.split('-')[1]}" if alt_type != "none" else
-                "Không có cầu đảo"
-            ),
+            'verdict': verdict,
             'deterministic': True,
             'timestamp': datetime.now().isoformat()
         })
@@ -1078,6 +1021,7 @@ def lc79_api():
             'cau': pattern_label,
             'alternating_type': ENGINE.last_alt_type,
             'alternating_conf': round(ENGINE.last_alt_conf, 3),
+            'alternating_pattern': ENGINE.last_alt_pattern,
             'auto_flip': False,
             'chuoi_thua': 0,
             'deterministic': True
