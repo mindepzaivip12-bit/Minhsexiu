@@ -9,7 +9,8 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)
 
-API_URL_MD5 = "https://wtxmd52.macminim6.online/v1/txmd5/lite-sessions?cp=R&cl=R&pf=web&at=bd651d261174ed4a619dfde6c5432fdd"
+# ⭐ API MỚI
+API_URL_MD5 = "https://wtx.tele68.com/v1/tx/lite-sessions?cp=R&cl=R&pf=web&at=a91c94eac39ec0288bb7a5196c1ae409"
 
 HISTORY_CACHE = {}
 PREDICTION_CACHE = {}
@@ -18,7 +19,7 @@ RESET_ID = 0
 WINDOW = 5
 
 # =====================================================================
-# HTML TEMPLATE (GIỮ NGUYÊN 100%)
+# HTML TEMPLATE (GIỮ NGUYÊN)
 # =====================================================================
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -26,7 +27,7 @@ HTML_TEMPLATE = """
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>LE MINH MD5 </title>
+<title>LE MINH HU </title>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <style>
@@ -95,7 +96,7 @@ HTML_TEMPLATE = """
 <body>
 
 <div class="header">
-    <div class="header-title">LE MINH <span>MD5</span></div>
+    <div class="header-title">LE MINH <span>HU</span></div>
     <div class="header-actions">
         <div class="time-update" id="time-update">--:--:--</div>
         <button class="btn-refresh" onclick="fetchData()">↻</button>
@@ -265,69 +266,47 @@ def _tx(seq):
 
 
 def _stable_jitter(results, span=2):
-    """Jitter DETERMINISTIC dựa trên hash pattern — thay random.randint()."""
+    """Jitter DETERMINISTIC dựa trên hash pattern — không random."""
     key = _tx(results[:25])
     h = hashlib.md5(key.encode('utf-8')).hexdigest()
     val = int(h[:8], 16)
-    return (val % (span * 2 + 1)) - span   # -span..+span
+    return (val % (span * 2 + 1)) - span
 
 
 # =====================================================================
-# 🚀 ALT 1-1 & 2-2 ANALYZER — PHÂN TÍCH SONG SONG TRÊN 5 PHIÊN
+# 🔄 ALT 1-1 THUẬN NGHỊCH ANALYZER — CHỈ ĐẢO 1-1 THUẦN
 # =====================================================================
 
-class Alt11And22Analyzer:
+class Alt11Analyzer:
     """
-    NÂNG CẤP: Phân tích SONG SONG cả đảo 1-1 THUẦN và đảo 2-2 THUẦN
-    trên 5 phiên gần nhất. Chọn tín hiệu MẠNH HƠN (confidence cao hơn)
-    để dự đoán phiên tiếp theo.
+    PHÂN TÍCH ĐẢO 1-1 THUẦN (THUẬN NGHỊCH) TRÊN 5 PHIÊN:
 
-    ═══════════════════════════════════════════════════════════════
-    ĐẢO 1-1 THUẦN (5 phiên — flip 100%):
-        "TXTXT"  → phiên kế = X
-        "XTXTX"  → phiên kế = T
-        Yêu cầu: 4/4 flip (không có 2 phiên liên tiếp giống nhau)
+    Pattern 5 phiên PHẢI khớp CHÍNH XÁC 1 trong 2 mẫu:
+        "TXTXT" (T-X-T-X-T)  → phiên kế = X (Xỉu)
+        "XTXTX" (X-T-X-T-X)  → phiên kế = T (Tài)
 
-    ═══════════════════════════════════════════════════════════════
-    ĐẢO 2-2 THUẦN (5 phiên — chu kỳ 4: TT-XX-TT-XX):
-        Pattern 5 phiên khớp CHÍNH XÁC một trong các mẫu:
-            "TTXXT"  → phiên kế = T   (TT XX T → T)
-            "XXTTX"  → phiên kế = X   (XX TT X → X)
-            "TXXTT"  → phiên kế = X   (T XX TT → X)
-            "XTTXX"  → phiên kế = T   (X TT XX → T)
-        Yêu cầu: 2/2 flip ở vị trí biên (index 1→2 và 3→4)
-                 (tức là có đúng 2 block đảo, không gãy giữa block)
-
-    Trả về: (pred_value|None, confidence 0..1, alt_type, pattern_str, detail)
-    ═══════════════════════════════════════════════════════════════
+    Điều kiện xác minh:
+        - 4/4 flip (không có 2 phiên liên tiếp giống nhau)
+        - Bonus nếu mở rộng 6-7 phiên cũng đảo liên tục
     """
 
-    # ── ĐẢO 1-1 THUẦN ──
-    PATTERNS_11 = {
+    PATTERNS = {
         "TXTXT": ("X", 0.92),   # phiên kế = Xỉu
         "XTXTX": ("T", 0.92),   # phiên kế = Tài
     }
 
-    # ── ĐẢO 2-2 THUẦN ──
-    # Key = 5 phiên (mới nhất index 0) → (pred_char, base_conf)
-    PATTERNS_22 = {
-        "TTXXT": ("T", 0.86),   # TT XX T → T
-        "XXTTX": ("X", 0.86),   # XX TT X → X
-        "TXXTT": ("X", 0.84),   # T XX TT → X
-        "XTTXX": ("T", 0.84),   # X TT XX → T
-    }
-
-    MIN_CONF_11 = 0.88
-    MIN_CONF_22 = 0.80
+    MIN_CONF = 0.85
 
     @staticmethod
-    def analyze_11(seq):
-        """Phân tích đảo 1-1 thuần trên 5 phiên."""
+    def analyze(seq):
+        """
+        Trả về: (pred_value|None, confidence 0..1, pattern_str)
+        """
         if not seq or len(seq) < 5:
             return None, 0.0, "-"
 
         s = _tx(seq[:5])
-        entry = Alt11And22Analyzer.PATTERNS_11.get(s)
+        entry = Alt11Analyzer.PATTERNS.get(s)
         if entry is None:
             return None, 0.0, s
 
@@ -340,145 +319,31 @@ class Alt11And22Analyzer:
 
         conf = base_conf
 
-        # Bonus nếu mở rộng ra 6-7 phiên cũng đảo
+        # Bonus 6 phiên
         if len(seq) >= 6:
             s6 = _tx(seq[:6])
             flips6 = sum(1 for i in range(5) if s6[i] != s6[i + 1])
             if flips6 == 5:
-                conf += 0.03
+                conf += 0.04
             elif flips6 <= 3:
-                conf -= 0.05
+                conf -= 0.08
 
+        # Bonus 7 phiên
         if len(seq) >= 7:
             s7 = _tx(seq[:7])
             flips7 = sum(1 for i in range(6) if s7[i] != s7[i + 1])
             if flips7 == 6:
                 conf += 0.02
             elif flips7 <= 4:
-                conf -= 0.03
+                conf -= 0.04
 
         conf = max(0.0, min(1.0, conf))
         pred_val = "Tài" if pred_char == "T" else "Xỉu"
         return pred_val, conf, s
-
-    @staticmethod
-    def analyze_22(seq):
-        """Phân tích đảo 2-2 thuần trên 5 phiên."""
-        if not seq or len(seq) < 5:
-            return None, 0.0, "-"
-
-        s = _tx(seq[:5])
-        entry = Alt11And22Analyzer.PATTERNS_22.get(s)
-        if entry is None:
-            return None, 0.0, s
-
-        pred_char, base_conf = entry
-
-        # Xác minh cấu trúc 2-2: flip tại vị trí 1→2 và 3→4
-        # Pattern: block1(2) block2(2) block3(1) — block1 == block3
-        # Ví dụ TTXXT: T T | X X | T  → flip tại index 1→2 và 3→4
-        flip_at_1_2 = s[1] != s[2]
-        flip_at_3_4 = s[3] != s[4]
-        no_flip_at_0_1 = s[0] == s[1]
-        no_flip_at_2_3 = s[2] == s[3]
-
-        if not (flip_at_1_2 and flip_at_3_4 and no_flip_at_0_1 and no_flip_at_2_3):
-            return None, 0.0, s
-
-        # Xác minh block1 == block3 (T ở index 0,1 phải giống T ở index 4)
-        if s[0] != s[4]:
-            return None, 0.0, s
-
-        conf = base_conf
-
-        # Bonus nếu mở rộng 6 phiên khớp tiếp chu kỳ 2-2
-        # Nếu pattern 5 phiên là TTXXT → phiên thứ 6 phải = T (tiếp block TT)
-        if len(seq) >= 6:
-            s6 = _tx(seq[:6])
-            # Kiểm tra 6 phiên: 2-2-2 pattern? VD TTXXTT
-            # Cấu trúc: block(2) block(2) block(2)
-            b1 = s6[0:2]
-            b2 = s6[2:4]
-            b3 = s6[4:6]
-            if b1 == b3 and b1 != b2:
-                conf += 0.04   # 6 phiên đảo 2-2 hoàn hảo
-            elif b1 == b2:
-                conf -= 0.05   # 3 block liên tiếp giống → không phải đảo
-            else:
-                conf -= 0.02   # không khớp chu kỳ
-
-        # Bonus/penalty 7 phiên
-        if len(seq) >= 7:
-            s7 = _tx(seq[:7])
-            # 7 phiên: 2-2-2-1
-            b1 = s7[0:2]
-            b2 = s7[2:4]
-            b3 = s7[4:6]
-            tail = s7[6]
-            if b1 == b3 and b1 != b2 and tail == b1[0]:
-                conf += 0.02
-
-        conf = max(0.0, min(1.0, conf))
-        pred_val = "Tài" if pred_char == "T" else "Xỉu"
-        return pred_val, conf, s
-
-    @staticmethod
-    def analyze(seq):
-        """
-        Phân tích SONG SONG cả 1-1 và 2-2. Chọn tín hiệu MẠNH HƠN.
-        Trả về: (pred_value|None, confidence 0..1, alt_type, pattern_str)
-        """
-        pred_11, conf_11, pat_11 = Alt11And22Analyzer.analyze_11(seq)
-        pred_22, conf_22, pat_22 = Alt11And22Analyzer.analyze_22(seq)
-
-        active_11 = pred_11 is not None and conf_11 >= Alt11And22Analyzer.MIN_CONF_11
-        active_22 = pred_22 is not None and conf_22 >= Alt11And22Analyzer.MIN_CONF_22
-
-        if not active_11 and not active_22:
-            # Trả về pattern gần nhất để hiển thị
-            return None, 0.0, "none", (pat_11 if len(seq or []) >= 5 else "-")
-
-        # Chọn tín hiệu mạnh hơn (confidence cao hơn)
-        if active_11 and active_22:
-            if conf_11 >= conf_22:
-                return pred_11, conf_11, "alt1-1", pat_11
-            else:
-                return pred_22, conf_22, "alt2-2", pat_22
-        elif active_11:
-            return pred_11, conf_11, "alt1-1", pat_11
-        else:
-            return pred_22, conf_22, "alt2-2", pat_22
-
-    @staticmethod
-    def compare(seq):
-        """Trả về dict so sánh chi tiết cả 2 loại (dùng cho API debug)."""
-        p11, c11, pat11 = Alt11And22Analyzer.analyze_11(seq)
-        p22, c22, pat22 = Alt11And22Analyzer.analyze_22(seq)
-        a11 = p11 is not None and c11 >= Alt11And22Analyzer.MIN_CONF_11
-        a22 = p22 is not None and c22 >= Alt11And22Analyzer.MIN_CONF_22
-        return {
-            'alt1_1': {
-                'active': a11,
-                'prediction': p11 or "-",
-                'confidence': round(c11, 3),
-                'pattern': pat11,
-            },
-            'alt2_2': {
-                'active': a22,
-                'prediction': p22 or "-",
-                'confidence': round(c22, 3),
-                'pattern': pat22,
-            },
-            'winner': (
-                'alt1-1' if a11 and (not a22 or c11 >= c22)
-                else 'alt2-2' if a22
-                else 'none'
-            ),
-        }
 
 
 # =====================================================================
-# 🧠 HOUSE ENGINE v6 — DETERMINISTIC + ALT 1-1 & 2-2 SONG SONG
+# 🧠 HOUSE ENGINE v7 — DETERMINISTIC + ALT 1-1 THUẦN
 # =====================================================================
 
 class HouseEngine:
@@ -490,23 +355,18 @@ class HouseEngine:
         "multi_tf": 0.06,
         "streak_physics": 0.05,
         "bias_detector": 0.03,
-        "alt_combo": 0.55,        # ⭐ TRỌNG TÂM: đảo 1-1 + 2-2 song song
+        "alt_combo": 0.55,        # ⭐ TRỌNG TÂM: đảo 1-1 thuận nghịch
     }
 
-    # Override threshold động theo loại
     ALT_OVERRIDE_MARGIN = 0.04
 
     def __init__(self):
         self.weights = dict(self.DEFAULT_WEIGHTS)
         self.recent_perf = []
         self.alt_perf = []
-        self.last_alt_type = "none"
         self.last_alt_conf = 0.0
         self.last_alt_pattern = "-"
         self.last_alt_active = False
-        self.last_compare = {}
-
-    # ------------------ STATIC FEATURES ------------------
 
     @staticmethod
     def _markov_1(seq):
@@ -622,16 +482,12 @@ class HouseEngine:
         ent = -(p * math.log2(p) + (1 - p) * math.log2(1 - p))
         return ent / 1.0
 
-    # ------------------ LEARNING ------------------
-
     def reset_state(self):
         self.recent_perf = []
         self.alt_perf = []
-        self.last_alt_type = "none"
         self.last_alt_conf = 0.0
         self.last_alt_pattern = "-"
         self.last_alt_active = False
-        self.last_compare = {}
 
     def update_performance(self, pred, actual):
         if pred in ("Tài", "Xỉu") and actual in ("Tài", "Xỉu"):
@@ -659,7 +515,6 @@ class HouseEngine:
             w["markov2"] = min(0.20, w["markov2"] + 0.02)
             w["bias_detector"] = max(0.02, w["bias_detector"] - 0.02)
 
-        # Adaptive cho alt combo
         if len(self.alt_perf) >= 8:
             alt_acc = sum(self.alt_perf) / len(self.alt_perf)
             if alt_acc < 0.40:
@@ -669,8 +524,6 @@ class HouseEngine:
 
         s = sum(w.values())
         return {k: v / s for k, v in w.items()}
-
-    # ------------------ PREDICT (DETERMINISTIC) ------------------
 
     def predict(self, results):
         if not results:
@@ -721,13 +574,11 @@ class HouseEngine:
         signals["bias_detector"] = self._bias_detector(results)
         supports["bias_detector"] = 0.6
 
-        # ⭐ ALT 1-1 + 2-2 SONG SONG
-        alt_pred, alt_conf, alt_type, alt_pattern = Alt11And22Analyzer.analyze(results)
-        self.last_alt_type = alt_type
+        # ⭐ ALT 1-1 THUẦN
+        alt_pred, alt_conf, alt_pattern = Alt11Analyzer.analyze(results)
         self.last_alt_conf = alt_conf
         self.last_alt_pattern = alt_pattern
-        self.last_alt_active = alt_type != "none" and alt_pred is not None
-        self.last_compare = Alt11And22Analyzer.compare(results)
+        self.last_alt_active = alt_pred is not None and alt_conf >= Alt11Analyzer.MIN_CONF
 
         if self.last_alt_active:
             alt_sign = 1.0 if alt_pred == "Tài" else -1.0
@@ -751,17 +602,11 @@ class HouseEngine:
 
         score = total_score / total_weight
 
-        # ⭐ OVERRIDE khi alt combo đủ mạnh
+        # ⭐ OVERRIDE khi ALT 1-1 đủ mạnh
         override_active = False
         if self.last_alt_active and alt_pred:
             alt_sign = 1.0 if alt_pred == "Tài" else -1.0
-            # Ngưỡng override: alt1-1 cần ≥0.88, alt2-2 cần ≥0.84
-            if alt_type == "alt1-1":
-                ovr_threshold = 0.88
-            else:
-                ovr_threshold = 0.84
-
-            if alt_conf >= ovr_threshold and score * alt_sign < self.ALT_OVERRIDE_MARGIN:
+            if alt_conf >= 0.92 and score * alt_sign < self.ALT_OVERRIDE_MARGIN:
                 score = alt_sign * max(abs(score), self.ALT_OVERRIDE_MARGIN + 0.02)
                 override_active = True
 
@@ -794,8 +639,7 @@ class HouseEngine:
 
         # Label hiển thị
         if self.last_alt_active:
-            type_label = "1-1" if alt_type == "alt1-1" else "2-2"
-            mode = f"Đảo {type_label} THUẦN 5P ({int(alt_conf*100)}%)"
+            mode = f"Đảo 1-1 THUẦN 5P ({int(alt_conf*100)}%)"
         else:
             seq5 = results[:5]
             flips = sum(1 for i in range(4) if seq5[i] != seq5[i + 1])
@@ -833,14 +677,10 @@ def compute_prediction(results):
 
 
 # =====================================================================
-# ⭐ BACKTEST DETERMINISTIC — đảm bảo kết quả lịch sử KHÔNG ĐỔI
+# ⭐ BACKTEST DETERMINISTIC
 # =====================================================================
 
 def run_deterministic_backtest(valid, reset_id):
-    """
-    Chạy replay từ phiên CŨ NHẤT đến MỚI NHẤT, cache kết quả.
-    Cùng (reset_id, phien) → cùng kết quả MÃI MÃI.
-    """
     global PREDICTION_CACHE
 
     PREDICTION_CACHE = {k: v for k, v in PREDICTION_CACHE.items() if k[0] == reset_id}
@@ -1007,10 +847,8 @@ def predict():
             'ls_5p': ls_5p,
             'pattern_label': pattern_label,
             'alt_active': ENGINE.last_alt_active,
-            'alt_type': ENGINE.last_alt_type,
             'alt_conf': round(ENGINE.last_alt_conf, 3),
             'alt_pattern': ENGINE.last_alt_pattern,
-            'alt_compare': ENGINE.last_compare,
             'deterministic': True,
             'timestamp': datetime.now().isoformat()
         })
@@ -1020,10 +858,7 @@ def predict():
 
 @app.route('/api/alternating')
 def alternating_api():
-    """
-    API chuyên biệt: PHÂN TÍCH SONG SONG 1-1 và 2-2 trên 5 phiên.
-    Trả về so sánh chi tiết cả 2 loại cầu.
-    """
+    """API chuyên biệt: PHÂN TÍCH ĐẢO 1-1 THUẦN trên 5 phiên."""
     global RESET_ID
     try:
         raw_rows, _ = fetch_sessions()
@@ -1039,38 +874,26 @@ def alternating_api():
 
         results = [v['result'] for v in valid][::-1]
 
-        # Phân tích song song
-        compare = Alt11And22Analyzer.compare(results)
-        alt_pred, alt_conf, alt_type, alt_pattern = Alt11And22Analyzer.analyze(results)
+        alt_pred, alt_conf, alt_pattern = Alt11Analyzer.analyze(results)
         ls_5p = format_tx(results, 5) or "-"
 
-        # Verdict
-        if alt_type == "alt1-1" and alt_conf >= 0.88:
+        is_alternating = alt_pred is not None and alt_conf >= Alt11Analyzer.MIN_CONF
+
+        if is_alternating:
             verdict = f"ĐẢO 1-1 THUẦN HOÀN HẢO ({alt_pattern})"
-        elif alt_type == "alt2-2" and alt_conf >= 0.84:
-            verdict = f"ĐẢO 2-2 THUẦN HOÀN HẢO ({alt_pattern})"
-        elif alt_type == "alt1-1":
-            verdict = f"Đảo 1-1 5P ({alt_pattern})"
-        elif alt_type == "alt2-2":
-            verdict = f"Đảo 2-2 5P ({alt_pattern})"
         else:
-            verdict = "Không có cầu đảo thuần 1-1 hoặc 2-2 trên 5 phiên"
+            verdict = "Không có cầu đảo 1-1 thuần trên 5 phiên"
 
         return jsonify({
             'last_phien': valid[-1]['phien'],
             'next_phien': valid[-1]['phien'] + 1,
             'ls_5p': ls_5p,
-            'is_alternating': alt_type != "none",
-            'winner': alt_type,
+            'is_alternating': is_alternating,
             'prediction': alt_pred if alt_pred else "-",
             'confidence': round(alt_conf, 3),
             'pattern': alt_pattern,
             'verdict': verdict,
-            'compare': compare,
-            'rule': {
-                'alt1_1': "5 phiên khớp TXTXT/XTXTX (flip 4/4)",
-                'alt2_2': "5 phiên khớp TTXXT/XXTTX/TXXTT/XTTXX (block 2-2-1)",
-            },
+            'rule': "5 phiên khớp TXTXT/XTXTX (flip 4/4)",
             'deterministic': True,
             'timestamp': datetime.now().isoformat()
         })
@@ -1079,7 +902,7 @@ def alternating_api():
 
 
 @app.route('/lc79')
-@app.route('/lc79md5')
+@app.route('/lc79hu')          # ⭐ ROUTE MỚI
 def lc79_api():
     global RESET_ID
     try:
@@ -1109,7 +932,6 @@ def lc79_api():
             'ls_5p': ls_5p,
             'cau': pattern_label,
             'alt_active': ENGINE.last_alt_active,
-            'alt_type': ENGINE.last_alt_type,
             'alt_conf': round(ENGINE.last_alt_conf, 3),
             'alt_pattern': ENGINE.last_alt_pattern,
             'auto_flip': False,
