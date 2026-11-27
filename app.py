@@ -1,7 +1,9 @@
 import os
 import math
 import hashlib
+import traceback
 from datetime import datetime
+from collections import defaultdict, Counter
 import requests
 from flask import Flask, render_template_string, jsonify
 from flask_cors import CORS
@@ -9,17 +11,15 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)
 
-# ⭐ API MỚI
-API_URL_MD5 = "https://wtx.tele68.com/v1/tx/lite-sessions?cp=R&cl=R&pf=web&at=a91c94eac39ec0288bb7a5196c1ae409"
+API_URL_MD5 = "https://wtxmd52.tele68.com/v1/txmd5/lite-sessions?cp=R&cl=R&pf=web&at=d35795e07a393f91815436933a4852df"
 
 HISTORY_CACHE = {}
-PREDICTION_CACHE = {}
-MAX_CONFIDENCE = 90
+MAX_CONFIDENCE = 93
+MIN_CONFIDENCE = 50
 RESET_ID = 0
-WINDOW = 5
 
 # =====================================================================
-# HTML TEMPLATE (GIỮ NGUYÊN)
+# HTML TEMPLATE
 # =====================================================================
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -27,7 +27,7 @@ HTML_TEMPLATE = """
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>LE MINH HU </title>
+<title>LE MINH MD5 </title>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <style>
@@ -96,7 +96,7 @@ HTML_TEMPLATE = """
 <body>
 
 <div class="header">
-    <div class="header-title">LE MINH <span>HU</span></div>
+    <div class="header-title">LE MINH <span>MD5</span></div>
     <div class="header-actions">
         <div class="time-update" id="time-update">--:--:--</div>
         <button class="btn-refresh" onclick="fetchData()">↻</button>
@@ -249,474 +249,682 @@ setInterval(fetchData, 5000);
 """
 
 # =====================================================================
-# CORE UTILS
+# 🎯 ENGINE V4 - 5P ALTERNATION FOCUS + MULTI-SIGNAL
 # =====================================================================
-def _opp(v):
-    return "Xỉu" if v == "Tài" else "Tài"
 
+def _opp(v): return "Xỉu" if v == "Tài" else "Tài"
 
-def format_tx(results, length):
-    if len(results) < length:
+def _to_binary(results):
+    return [1 if r == "Tài" else 0 for r in results]
+
+def _count_streak(results):
+    if not results: return 0
+    r0 = results[0]; c = 1
+    for r in results[1:]:
+        if r == r0: c += 1
+        else: break
+    return c
+
+def get_groups(results):
+    if not results: return []
+    groups = []
+    current_val = results[0]; count = 1
+    for r in results[1:]:
+        if r == current_val: count += 1
+        else:
+            groups.append(count); current_val = r; count = 1
+    groups.append(count)
+    return groups
+
+def _regime(results):
+    if len(results) < 5: return "balanced"
+    streak = _count_streak(results)
+    alt = sum(1 for i in range(min(5, len(results)-1)) if results[i] != results[i+1])
+    if alt >= 4 and alt > streak: return "alternation"
+    if streak >= 3: return "streak"
+    return "balanced"
+
+def encode_tx(results, length):
+    if not results or len(results) < length: return None
+    return "".join("T" if r == "Tài" else "X" for r in results[:length])
+
+def learn_md5_db(valid):
+    db = defaultdict(lambda: {"Tài": 0, "Xỉu": 0})
+    n = len(valid)
+    if n < 15: return db
+    for i in range(13, n):
+        hist = [v['result'] for v in valid[i-13:i]][::-1]
+        tx = encode_tx(hist, 13)
+        h = hashlib.md5(f"leminh_v2|{tx}".encode()).hexdigest()
+        db[h][valid[i]['result']] += 1
+    return db
+
+# =====================================================================
+# 🎯 PRIMARY - 5 PHIÊN ĐẢO THUẬN NGHỊCH 1-1 (CORE NÂNG CẤP)
+# =====================================================================
+
+def algo_5p_pattern_v2(results):
+    """
+    🎯 CORE V2: PHÂN TÍCH 5 PHIÊN ĐẢO THUẬN NGHỊCH 1-1
+
+    Phân tích chi tiết 5 phiên gần nhất dựa trên TRANSITIONS:
+    - 4 transitions (TXTXT/XTXTX) → đảo hoàn hảo 5 phiên
+    - 3 transitions (TXXTX/XTXXT) → mix đảo, phân tích vị trí bệt
+    - 2 transitions (TTXXT/TXXTT) → pattern 2-3/3-2
+    - 1 transition  (TTTTX/TTTTX) → bệt 4 + đổi cuối
+    - 0 transitions (TTTTT/XXXXX) → bệt 5 phiên
+
+    Kết hợp với ALTERNATION STREAK dài hơn (tới 10 phiên) để đánh giá
+    xu hướng đảo có đang quá dài hay không.
+    """
+    if len(results) < 5:
         return None
-    return "-".join("T" if r == "Tài" else "X" for r in results[:length])
+
+    last5 = results[:5]
+    transitions = sum(1 for i in range(4) if last5[i] != last5[i+1])
+
+    # Đảo streak dài hơn (bao gồm cả 6-10 phiên) để cảnh báo gãy
+    alt_streak = 0
+    for i in range(min(len(results) - 1, 10)):
+        if results[i] != results[i + 1]:
+            alt_streak += 1
+        else:
+            break
+
+    # ===== 4 TRANSITIONS: 5 phiên đảo hoàn hảo =====
+    if transitions == 4:
+        if alt_streak >= 7:
+            # Đảo quá dài → nguy cơ gãy
+            return (results[0], 72, "5p_v2_alt_break_7")
+        if alt_streak >= 5:
+            # Đảo dài → tiếp tục nhưng confidence giảm
+            return (_opp(last5[0]), 78, "5p_v2_alt_continue_long")
+        # Đảo 4 phiên vừa phải → tiếp tục đảo mạnh
+        return (_opp(last5[0]), 90, "5p_v2_alt_perfect")
+
+    # ===== 3 TRANSITIONS: mix đảo =====
+    if transitions == 3:
+        bet_positions = [i for i in range(4) if last5[i] == last5[i + 1]]
+        if bet_positions:
+            bet_pos = bet_positions[0]
+            if bet_pos == 0:
+                # Bệt ở 2 phiên đầu (mới nhất) → sắp đảo
+                return (_opp(last5[0]), 76, "5p_v2_3t_bet_head")
+            if bet_pos == 3:
+                # Bệt ở cuối (cũ nhất) → đảo chiếm ưu thế rõ
+                return (_opp(last5[0]), 84, "5p_v2_3t_dao_tail")
+            # Bệt ở giữa → xu hướng đảo
+            return (_opp(last5[0]), 80, "5p_v2_3t_dao_mid")
+        return (_opp(last5[0]), 78, "5p_v2_3t_default")
+
+    # ===== 2 TRANSITIONS: pattern 2-3 hoặc 3-2 =====
+    if transitions == 2:
+        if last5[0] != last5[1]:
+            # Đảo ở 2 phiên đầu
+            if last5[2] == last5[3] == last5[4]:
+                # 2 đảo + 3 bệt → chuyển tiếp
+                return (_opp(last5[0]), 70, "5p_v2_2t_dao_then_bet")
+            return (_opp(last5[0]), 68, "5p_v2_2t_dao_head")
+        # Bệt ở đầu → có thể phá
+        return (_opp(last5[0]), 64, "5p_v2_2t_bet_head")
+
+    # ===== 1 TRANSITION: bệt 4 + 1 đổi =====
+    if transitions == 1:
+        streak = _count_streak(results)
+        if streak >= 4:
+            return (_opp(last5[0]), 74, "5p_v2_1t_break4")
+        return (_opp(last5[0]), 68, "5p_v2_1t_default")
+
+    # ===== 0 TRANSITIONS: bệt 5+ =====
+    if transitions == 0:
+        streak = _count_streak(results)
+        if streak >= 7:
+            return (_opp(last5[0]), 80, "5p_v2_bet7_break")
+        if streak >= 6:
+            return (_opp(last5[0]), 76, "5p_v2_bet6_break")
+        return (_opp(last5[0]), 72, "5p_v2_bet5_break")
+
+    return None
 
 
-def _tx(seq):
-    return "".join("T" if r == "Tài" else "X" for r in seq)
-
-
-def _stable_jitter(results, span=2):
-    """Jitter DETERMINISTIC dựa trên hash pattern — không random."""
-    key = _tx(results[:25])
-    h = hashlib.md5(key.encode('utf-8')).hexdigest()
-    val = int(h[:8], 16)
-    return (val % (span * 2 + 1)) - span
-
-
-# =====================================================================
-# 🔄 ALT 1-1 THUẬN NGHỊCH ANALYZER — CHỈ ĐẢO 1-1 THUẦN
-# =====================================================================
-
-class Alt11Analyzer:
+def algo_alternation_streak(results):
     """
-    PHÂN TÍCH ĐẢO 1-1 THUẦN (THUẬN NGHỊCH) TRÊN 5 PHIÊN:
+    🎯 ĐẢO 1-1 LIÊN TỤC (ALTERNATION STREAK) - CHUYÊN SÂU
 
-    Pattern 5 phiên PHẢI khớp CHÍNH XÁC 1 trong 2 mẫu:
-        "TXTXT" (T-X-T-X-T)  → phiên kế = X (Xỉu)
-        "XTXTX" (X-T-X-T-X)  → phiên kế = T (Tài)
-
-    Điều kiện xác minh:
-        - 4/4 flip (không có 2 phiên liên tiếp giống nhau)
-        - Bonus nếu mở rộng 6-7 phiên cũng đảo liên tục
+    Đếm số cặp đảo liên tiếp (alt_streak):
+    - 2-3 phiên đảo → tiếp tục đảo (rất mạnh)
+    - 4-5 phiên đảo → tiếp tục đảo (trung bình)
+    - 6 phiên đảo   → vùng chuyển tiếp (cân bằng)
+    - 7 phiên đảo   → chuẩn bị gãy
+    - ≥8 phiên đảo  → gãy (bệt trở lại)
     """
+    if len(results) < 8:
+        return None
 
-    PATTERNS = {
-        "TXTXT": ("X", 0.92),   # phiên kế = Xỉu
-        "XTXTX": ("T", 0.92),   # phiên kế = Tài
-    }
+    alt_streak = 0
+    for i in range(min(len(results) - 1, 15)):
+        if results[i] != results[i + 1]:
+            alt_streak += 1
+        else:
+            break
 
-    MIN_CONF = 0.85
+    if alt_streak < 2:
+        return None
 
-    @staticmethod
-    def analyze(seq):
-        """
-        Trả về: (pred_value|None, confidence 0..1, pattern_str)
-        """
-        if not seq or len(seq) < 5:
-            return None, 0.0, "-"
+    if alt_streak >= 8:
+        return (results[0], 84, f"alt_streak_break_{alt_streak}")
+    if alt_streak == 7:
+        return (results[0], 76, "alt_streak_break_7")
+    if alt_streak == 6:
+        return (_opp(results[0]), 58, "alt_streak_warn_6")
+    if alt_streak >= 4:
+        return (_opp(results[0]), 78, "alt_streak_continue_mid")
+    return (_opp(results[0]), 82, "alt_streak_continue_short")
 
-        s = _tx(seq[:5])
-        entry = Alt11Analyzer.PATTERNS.get(s)
-        if entry is None:
-            return None, 0.0, s
 
-        pred_char, base_conf = entry
+def algo_5p_palindrome(results):
+    """
+    🎯 ĐỐI XỨNG 5 PHIÊN (PALINDROME)
 
-        # Xác minh 4/4 flip
-        flips = sum(1 for i in range(4) if s[i] != s[i + 1])
-        if flips != 4:
-            return None, 0.0, s
+    Pattern đối xứng: TXTXT, XTXTX, TXXTT, XTTXX, TTXTT, XXTXX
+    Điều kiện: last5[0]==last5[4] AND last5[1]==last5[3]
+    """
+    if len(results) < 5:
+        return None
 
-        conf = base_conf
+    last5 = results[:5]
+    if last5[0] == last5[4] and last5[1] == last5[3]:
+        transitions = sum(1 for i in range(4) if last5[i] != last5[i + 1])
+        if transitions == 4:
+            # TXTXT / XTXTX → đảo hoàn hảo
+            return (_opp(last5[0]), 88, "palindrome_alt5")
+        if transitions == 2:
+            # TXXTT / XTTXX / TTXTT / XXTXX → đảo qua bệt
+            return (_opp(last5[0]), 74, "palindrome_bet5")
+    return None
 
-        # Bonus 6 phiên
-        if len(seq) >= 6:
-            s6 = _tx(seq[:6])
-            flips6 = sum(1 for i in range(5) if s6[i] != s6[i + 1])
-            if flips6 == 5:
-                conf += 0.04
-            elif flips6 <= 3:
-                conf -= 0.08
 
-        # Bonus 7 phiên
-        if len(seq) >= 7:
-            s7 = _tx(seq[:7])
-            flips7 = sum(1 for i in range(6) if s7[i] != s7[i + 1])
-            if flips7 == 6:
-                conf += 0.02
-            elif flips7 <= 4:
-                conf -= 0.04
+def algo_5p_majority(results):
+    """
+    🎯 ĐA SỐ 5 PHIÊN (MAJORITY VOTE + MEAN REVERSION)
 
-        conf = max(0.0, min(1.0, conf))
-        pred_val = "Tài" if pred_char == "T" else "Xỉu"
-        return pred_val, conf, s
+    ≥4/5 cùng dấu → mean reversion mạnh
+    3/5 nghiêng nhưng không đủ
+    """
+    if len(results) < 5:
+        return None
+    last5 = results[:5]
+    tai_count = sum(1 for r in last5 if r == "Tài")
+    if tai_count == 5:
+        return ("Xỉu", 76, "majority_5T")
+    if tai_count == 4:
+        return ("Xỉu", 66, "majority_4T")
+    if tai_count == 1:
+        return ("Tài", 66, "majority_4X")
+    if tai_count == 0:
+        return ("Tài", 76, "majority_5X")
+    return None
 
+
+def algo_5p_with_streak_context(results):
+    """
+    🎯 KẾT HỢP 5P + STREAK CONTEXT
+
+    Kết hợp transitions 5 phiên với streak hiện tại:
+    - Streak ≥3 + transitions cao (≥2) → đảo sắp xảy ra
+    - Streak 1-2 + transitions rất cao (4) → tiếp tục đảo mạnh
+    """
+    if len(results) < 8:
+        return None
+    last5 = results[:5]
+    streak = _count_streak(results)
+    trans_5 = sum(1 for i in range(4) if last5[i] != last5[i + 1])
+
+    if streak >= 3 and trans_5 >= 2:
+        return (_opp(results[0]), 74, "5p_streak_break")
+    if streak <= 2 and trans_5 == 4:
+        return (_opp(results[0]), 84, "5p_streak_alt")
+    return None
+
+
+def algo_5p_phase_cycle(results):
+    """
+    🎯 PHÂN TÍCH PHA/CHU KỲ (PERIODIC PATTERN)
+
+    Tìm chu kỳ 2, 3, 4 phiên trong 12+ phiên gần nhất
+    Nếu khớp ≥75% → dự đoán theo chu kỳ
+    """
+    if len(results) < 12:
+        return None
+    for period in [2, 3, 4]:
+        if len(results) < period * 3 + 1:
+            continue
+        matches = 0
+        checks = 0
+        for i in range(period, min(len(results), period * 4)):
+            checks += 1
+            if results[i] == results[i - period]:
+                matches += 1
+        if checks >= 6 and matches / checks >= 0.75:
+            next_in_cycle = results[period - 1]
+            confidence = 68 + int((matches / checks - 0.75) * 60)
+            confidence = min(84, confidence)
+            return (next_in_cycle, confidence, f"phase_{period}")
+    return None
 
 # =====================================================================
-# 🧠 HOUSE ENGINE v7 — DETERMINISTIC + ALT 1-1 THUẦN
+# 🎯 SECONDARY - STREAK / PATTERN / ZIGZAG / N-GRAM
 # =====================================================================
 
-class HouseEngine:
-    DEFAULT_WEIGHTS = {
-        "markov1": 0.08,
-        "markov2": 0.10,
-        "markov3": 0.05,
-        "pattern_memory": 0.08,
-        "multi_tf": 0.06,
-        "streak_physics": 0.05,
-        "bias_detector": 0.03,
-        "alt_combo": 0.55,        # ⭐ TRỌNG TÂM: đảo 1-1 thuận nghịch
-    }
-
-    ALT_OVERRIDE_MARGIN = 0.04
-
-    def __init__(self):
-        self.weights = dict(self.DEFAULT_WEIGHTS)
-        self.recent_perf = []
-        self.alt_perf = []
-        self.last_alt_conf = 0.0
-        self.last_alt_pattern = "-"
-        self.last_alt_active = False
-
-    @staticmethod
-    def _markov_1(seq):
-        tt = tx = xt = xx = 0
-        for i in range(len(seq) - 1):
-            a, b = seq[i], seq[i + 1]
-            if a == "Tài" and b == "Tài": tt += 1
-            elif a == "Tài" and b == "Xỉu": tx += 1
-            elif a == "Xỉu" and b == "Tài": xt += 1
-            else: xx += 1
-        last = seq[0]
-        if last == "Tài":
-            denom = tt + tx
-            return tt / denom if denom else 0.5
-        else:
-            denom = xt + xx
-            return xt / denom if denom else 0.5
-
-    @staticmethod
-    def _markov_n(seq, n):
-        if len(seq) < n + 2:
-            return None
-        ctx = tuple(seq[:n])
-        s = _tx(seq)
-        pat = _tx(ctx)
-        t_after = x_after = 0
-        for i in range(len(s) - n):
-            if s[i:i + n] == pat:
-                if s[i + n] == "T": t_after += 1
-                else: x_after += 1
-        total = t_after + x_after
-        if total == 0:
-            return None
-        return t_after / total
-
-    @staticmethod
-    def _pattern_memory(seq, max_len=4):
-        s = _tx(seq)
-        results = {}
-        for L in range(2, max_len + 1):
-            if len(s) < L + 1:
-                continue
-            tail = s[:L]
-            t_after = x_after = 0
-            for i in range(0, len(s) - L):
-                if s[i:i + L] == tail:
-                    if s[i + L] == "T": t_after += 1
-                    else: x_after += 1
-            total = t_after + x_after
-            if total >= 2:
-                results[L] = (t_after / total, total)
-            else:
-                results[L] = (None, total)
-        return results
-
-    @staticmethod
-    def _multi_tf_bias(seq):
-        weights = {3: 0.35, 5: 0.30, 8: 0.18, 12: 0.12, 20: 0.05}
-        total_w = 0.0
-        bias = 0.0
-        for w_len, w in weights.items():
-            if len(seq) >= w_len:
-                p_tai = sum(1 for r in seq[:w_len] if r == "Tài") / w_len
-                bias += (p_tai - 0.5) * w
-                total_w += w
-        if total_w == 0:
-            return 0.0
-        return bias / total_w
-
-    @staticmethod
-    def _streak_physics(seq):
-        if not seq:
-            return 0.0, "empty"
-        streak_val = seq[0]
-        streak_len = 1
-        for r in seq[1:]:
-            if r == streak_val: streak_len += 1
-            else: break
-        flips = sum(1 for i in range(min(len(seq) - 1, 5)) if seq[i] != seq[i + 1])
-
-        bias = 0.0
-        reason = ""
-        if flips >= 4:
-            bias = -0.20 if streak_val == "Tài" else 0.20
-            reason = f"dao1-1({streak_len})"
-        elif streak_len >= 3:
-            decay = max(0.05, 0.25 - 0.04 * (streak_len - 3))
-            bias = decay if streak_val == "Xỉu" else -decay
-            reason = f"bet{streak_len}"
-        else:
-            reason = "normal"
-        return bias, reason
-
-    @staticmethod
-    def _bias_detector(seq):
-        if len(seq) < 15:
-            return 0.0
-        recent = seq[:30]
-        p_tai = sum(1 for r in recent if r == "Tài") / len(recent)
-        dev = p_tai - 0.5
-        if abs(dev) < 0.10:
-            return 0.0
-        return -dev * 0.5
-
-    @staticmethod
-    def _volatility(seq):
-        if len(seq) < 10:
-            return 0.5
-        recent = seq[:15]
-        p = sum(1 for r in recent if r == "Tài") / len(recent)
-        if p in (0.0, 1.0):
-            return 0.0
-        ent = -(p * math.log2(p) + (1 - p) * math.log2(1 - p))
-        return ent / 1.0
-
-    def reset_state(self):
-        self.recent_perf = []
-        self.alt_perf = []
-        self.last_alt_conf = 0.0
-        self.last_alt_pattern = "-"
-        self.last_alt_active = False
-
-    def update_performance(self, pred, actual):
-        if pred in ("Tài", "Xỉu") and actual in ("Tài", "Xỉu"):
-            win = 1 if pred == actual else 0
-            self.recent_perf.append(win)
-            if len(self.recent_perf) > 60:
-                self.recent_perf.pop(0)
-            if self.last_alt_active:
-                self.alt_perf.append(win)
-                if len(self.alt_perf) > 30:
-                    self.alt_perf.pop(0)
-
-    def _adaptive_weights(self):
-        if len(self.recent_perf) < 15:
-            return self.weights
-        recent = self.recent_perf[-30:]
-        acc = sum(recent) / len(recent)
-        w = dict(self.weights)
-        if acc < 0.45:
-            w["bias_detector"] = min(0.20, w["bias_detector"] + 0.05)
-            w["markov1"] = max(0.05, w["markov1"] - 0.02)
-            w["pattern_memory"] = max(0.05, w["pattern_memory"] - 0.02)
-        elif acc > 0.60:
-            w["pattern_memory"] = min(0.18, w["pattern_memory"] + 0.03)
-            w["markov2"] = min(0.20, w["markov2"] + 0.02)
-            w["bias_detector"] = max(0.02, w["bias_detector"] - 0.02)
-
-        if len(self.alt_perf) >= 8:
-            alt_acc = sum(self.alt_perf) / len(self.alt_perf)
-            if alt_acc < 0.40:
-                w["alt_combo"] = max(0.30, w["alt_combo"] - 0.08)
-            elif alt_acc > 0.65:
-                w["alt_combo"] = min(0.62, w["alt_combo"] + 0.05)
-
-        s = sum(w.values())
-        return {k: v / s for k, v in w.items()}
-
-    def predict(self, results):
-        if not results:
-            return "Tài", 50, "empty"
-
-        if len(results) < 5:
-            t = results.count("Tài")
-            x = len(results) - t
-            if t > x: return "Tài", 55, "short-majority"
-            if x > t: return "Xỉu", 55, "short-majority"
-            return results[0], 52, "follow-last"
-
-        signals = {}
-        supports = {}
-
-        p1 = self._markov_1(results)
-        signals["markov1"] = p1 - 0.5
-        supports["markov1"] = 0.6
-
-        for n in (2, 3):
-            pn = self._markov_n(results, n)
-            if pn is not None:
-                signals[f"markov{n}"] = pn - 0.5
-                supports[f"markov{n}"] = 0.7 if n == 2 else 0.5
-
-        pm = self._pattern_memory(results, max_len=4)
-        pm_bias = 0.0
-        pm_support = 0.0
-        pm_total = 0
-        for L, (p, sup) in pm.items():
-            if p is not None:
-                w = {2: 0.5, 3: 0.3, 4: 0.2}.get(L, 0.1)
-                pm_bias += (p - 0.5) * w
-                pm_support += w
-                pm_total += sup
-        if pm_support > 0:
-            pm_bias /= pm_support
-        signals["pattern_memory"] = pm_bias
-        supports["pattern_memory"] = min(1.0, pm_total / 10.0)
-
-        signals["multi_tf"] = self._multi_tf_bias(results)
-        supports["multi_tf"] = 0.8
-
-        sp_bias, sp_reason = self._streak_physics(results)
-        signals["streak_physics"] = sp_bias
-        supports["streak_physics"] = 0.7
-
-        signals["bias_detector"] = self._bias_detector(results)
-        supports["bias_detector"] = 0.6
-
-        # ⭐ ALT 1-1 THUẦN
-        alt_pred, alt_conf, alt_pattern = Alt11Analyzer.analyze(results)
-        self.last_alt_conf = alt_conf
-        self.last_alt_pattern = alt_pattern
-        self.last_alt_active = alt_pred is not None and alt_conf >= Alt11Analyzer.MIN_CONF
-
-        if self.last_alt_active:
-            alt_sign = 1.0 if alt_pred == "Tài" else -1.0
-            signals["alt_combo"] = alt_sign * alt_conf
-            supports["alt_combo"] = min(1.0, alt_conf + 0.15)
-        else:
-            signals["alt_combo"] = 0.0
-            supports["alt_combo"] = 0.0
-
-        w = self._adaptive_weights()
-        total_score = 0.0
-        total_weight = 0.0
-        for name, bias in signals.items():
-            if name in w and supports.get(name, 0) > 0:
-                eff_w = w[name] * supports[name]
-                total_score += bias * eff_w
-                total_weight += eff_w
-
-        if total_weight == 0:
-            return results[0], 52, "fallback"
-
-        score = total_score / total_weight
-
-        # ⭐ OVERRIDE khi ALT 1-1 đủ mạnh
-        override_active = False
-        if self.last_alt_active and alt_pred:
-            alt_sign = 1.0 if alt_pred == "Tài" else -1.0
-            if alt_conf >= 0.92 and score * alt_sign < self.ALT_OVERRIDE_MARGIN:
-                score = alt_sign * max(abs(score), self.ALT_OVERRIDE_MARGIN + 0.02)
-                override_active = True
-
-        pred = "Tài" if score >= 0 else "Xỉu"
-
-        if abs(score) < 0.02:
-            pred = results[0]
-            label_extra = " edge"
-        else:
-            label_extra = ""
-
-        vol = self._volatility(results)
-        conf_raw = 50 + abs(score) * 40
-        conf_raw *= (1 - 0.25 * vol)
-
-        if override_active:
-            conf_raw += 10
-        elif self.last_alt_active and alt_pred:
-            if pred == alt_pred:
-                conf_raw += 5
-
-        if self.last_alt_active and not override_active and alt_pred:
-            if pred != alt_pred:
-                conf_raw -= 5
-
-        conf = int(round(conf_raw))
-        conf = max(52, min(MAX_CONFIDENCE, conf))
-        conf += _stable_jitter(results, span=2)
-        conf = max(52, min(MAX_CONFIDENCE, conf))
-
-        # Label hiển thị
-        if self.last_alt_active:
-            mode = f"Đảo 1-1 THUẦN 5P ({int(alt_conf*100)}%)"
-        else:
-            seq5 = results[:5]
-            flips = sum(1 for i in range(4) if seq5[i] != seq5[i + 1])
-            if flips == 4:
-                mode = "Đảo 1-1 (4/5)"
-            elif flips == 2:
-                mode = "Đảo 2-2 (2/4)"
-            elif flips <= 1:
-                mode = f"Bệt {self._streak_len(results)}P"
-            else:
-                mode = "Hỗn tạp"
-
-        if override_active:
-            mode += " ⚡OVR"
-
-        label = f"{mode} ({alt_pattern}) | {sp_reason}{label_extra}"
-
-        return pred, conf, label
-
-    @staticmethod
-    def _streak_len(seq):
-        v = seq[0]
-        n = 1
-        for r in seq[1:]:
-            if r == v: n += 1
-            else: break
-        return n
+def algo_streak_analysis(results):
+    if len(results) < 6: return None
+    streak = _count_streak(results)
+    streak_val = results[0]
+    if streak >= 7: return (_opp(streak_val), 82, f"streak_break_{streak}")
+    if streak >= 6: return (_opp(streak_val), 78, "streak_break_6")
+    if streak == 5: return (_opp(streak_val), 72, "streak_break_5")
+    if streak == 4:
+        if len(results) >= 10:
+            same = sum(1 for r in results[:10] if r == streak_val)
+            if same >= 7: return (streak_val, 62, "streak_continue_4")
+        return (_opp(streak_val), 68, "streak_break_4")
+    if streak == 3:
+        if len(results) >= 10:
+            same = sum(1 for r in results[:10] if r == streak_val)
+            if same >= 7: return (streak_val, 60, "streak_continue_3")
+        return (_opp(streak_val), 58, "streak_break_3")
+    return None
 
 
-ENGINE = HouseEngine()
+def algo_pattern_match(results):
+    if len(results) < 20: return None
+    best = None
+    for plen in [2, 3, 4, 5, 6]:
+        if len(results) < plen + 10: continue
+        pattern = results[:plen]
+        matches_tai = 0; matches_xiu = 0
+        for i in range(plen, len(results) - plen + 1):
+            if results[i:i + plen] == pattern:
+                if results[i - 1] == "Tài": matches_tai += 1
+                else: matches_xiu += 1
+        total = matches_tai + matches_xiu
+        if total >= 3:
+            if matches_tai / total >= 0.7:
+                w = 15 + plen * 3
+                if best is None or w > best[1]:
+                    best = ("Tài", w, f"pattern_{plen}T")
+            elif matches_xiu / total >= 0.7:
+                w = 15 + plen * 3
+                if best is None or w > best[1]:
+                    best = ("Xỉu", w, f"pattern_{plen}X")
+    return best
 
 
-def compute_prediction(results):
-    return ENGINE.predict(results)
+def algo_zigzag_detection(results):
+    if len(results) < 8: return None
+    groups = get_groups(results)
+    if len(groups) < 3: return None
+    if groups[0] == 2 and groups[1] == 2 and groups[2] == 2:
+        return (_opp(results[0]), 76, "zigzag_222")
+    if groups[0] == 3 and groups[1] == 3 and groups[2] == 3:
+        return (_opp(results[0]), 72, "zigzag_333")
+    if len(groups) >= 4:
+        if groups[0] == 2 and groups[1] == 1 and groups[2] == 1:
+            return (results[0], 62, "zigzag_transition")
+    return None
 
+
+def algo_n_gram_backoff(results):
+    if len(results) < 15: return None
+    for n in [6, 5, 4, 3]:
+        if len(results) < n + 8: continue
+        pattern = tuple(results[:n])
+        counts = Counter()
+        for i in range(n, len(results)):
+            if tuple(results[i:i + n]) == pattern:
+                if i > 0:
+                    counts[results[i - 1]] += 1
+        total = counts["Tài"] + counts["Xỉu"]
+        if total >= 3:
+            p_tai = counts["Tài"] / total
+            w = 12 + n * 4
+            if p_tai >= 0.70: return ("Tài", w, f"ngram_{n}T")
+            if p_tai <= 0.30: return ("Xỉu", w, f"ngram_{n}X")
+    return None
 
 # =====================================================================
-# ⭐ BACKTEST DETERMINISTIC
+# 🎯 AUXILIARY - STATISTICAL / MARKOV / MISC
 # =====================================================================
 
-def run_deterministic_backtest(valid, reset_id):
-    global PREDICTION_CACHE
+def algo_momentum(results):
+    if len(results) < 10: return None
+    last3 = results[:3]
+    last10 = results[:10]
+    tai_3 = sum(1 for r in last3 if r == "Tài")
+    tai_10 = sum(1 for r in last10 if r == "Tài")
+    if tai_3 == 3 and 3 <= tai_10 <= 6:
+        return ("Tài", 62, "momentum_T")
+    if tai_3 == 0 and 4 <= tai_10 <= 7:
+        return ("Xỉu", 62, "momentum_X")
+    return None
 
-    PREDICTION_CACHE = {k: v for k, v in PREDICTION_CACHE.items() if k[0] == reset_id}
 
-    ENGINE.reset_state()
+def algo_frequency_bias(results, window=20):
+    if len(results) < window: return None
+    recent = results[:window]
+    tai = sum(1 for r in recent if r == "Tài")
+    ratio = tai / window
+    if ratio >= 0.72:
+        return ("Xỉu", int(55 + (ratio - 0.72) * 100), "freq_bias_X")
+    if ratio <= 0.28:
+        return ("Tài", int(55 + (0.28 - ratio) * 100), "freq_bias_T")
+    return None
 
-    result_map = {v['phien']: v['result'] for v in valid}
-    phien_list = sorted(result_map.keys())
 
-    history_rev = []
-    for phien in phien_list:
-        cache_key = (reset_id, phien)
+def algo_markov(results):
+    if len(results) < 20: return None
+    key = (results[1], results[0])
+    counts = {"Tài": 1, "Xỉu": 1}
+    for i in range(min(len(results) - 2, 60)):
+        if (results[i + 2], results[i + 1]) == key:
+            counts[results[i]] += 1
+    total = counts["Tài"] + counts["Xỉu"]
+    if total < 6: return None
+    p_tai = counts["Tài"] / total
+    if p_tai >= 0.68: return ("Tài", 18, "markov2")
+    if p_tai <= 0.32: return ("Xỉu", 18, "markov2")
+    return None
 
-        if cache_key in PREDICTION_CACHE:
-            pred, conf, label = PREDICTION_CACHE[cache_key]
+
+def algo_markov_order3(results):
+    if len(results) < 30: return None
+    key = (results[2], results[1], results[0])
+    counts = {"Tài": 1, "Xỉu": 1}
+    for i in range(1, min(len(results) - 2, 81)):
+        if (results[i + 2], results[i + 1], results[i]) == key:
+            counts[results[i - 1]] += 1
+    total = counts["Tài"] + counts["Xỉu"]
+    if total < 5: return None
+    p_tai = counts["Tài"] / total
+    if p_tai >= 0.70: return ("Tài", 20, "markov3")
+    if p_tai <= 0.30: return ("Xỉu", 20, "markov3")
+    return None
+
+
+def algo_trend_break(results):
+    if len(results) < 20: return None
+    window = list(reversed(results[:20]))
+    b = _to_binary(window)
+    x_mean = 9.5; y_mean = sum(b) / 20
+    num = sum((i - x_mean) * (b[i] - y_mean) for i in range(20))
+    den = sum((i - x_mean) ** 2 for i in range(20))
+    slope = num / den if den else 0
+    last3 = b[-3:]
+    if slope > 0.05 and sum(last3) <= 1: return ("Tài", 15, "trend_T")
+    if slope < -0.05 and sum(last3) >= 2: return ("Xỉu", 15, "trend_X")
+    return None
+
+
+def algo_gap_analysis(results):
+    if len(results) < 25: return None
+    last_tai = -1; last_xiu = -1
+    gaps_tai = []; gaps_xiu = []
+    for i, r in enumerate(results):
+        if r == "Tài":
+            if last_tai >= 0: gaps_tai.append(i - last_tai)
+            last_tai = i
         else:
-            if len(history_rev) >= 5:
-                pred, conf, label = ENGINE.predict(history_rev)
-            elif len(history_rev) > 0:
-                t = history_rev.count("Tài")
-                x = len(history_rev) - t
-                if t > x: pred, conf = "Tài", 55
-                elif x > t: pred, conf = "Xỉu", 55
-                else: pred, conf = history_rev[0], 52
-                label = "short-history"
-            else:
-                pred, conf, label = "-", 50, "init"
+            if last_xiu >= 0: gaps_xiu.append(i - last_xiu)
+            last_xiu = i
+    cur_streak = _count_streak(results)
+    cur_val = results[0]
+    if cur_val == "Tài" and gaps_tai:
+        avg = sum(gaps_tai) / len(gaps_tai)
+        if cur_streak >= avg * 1.5 and cur_streak >= 3:
+            return (_opp(cur_val), 66, "gap_overdue_T")
+    if cur_val == "Xỉu" and gaps_xiu:
+        avg = sum(gaps_xiu) / len(gaps_xiu)
+        if cur_streak >= avg * 1.5 and cur_streak >= 3:
+            return (_opp(cur_val), 66, "gap_overdue_X")
+    return None
 
-            PREDICTION_CACHE[cache_key] = (pred, conf, label)
 
-        actual = result_map[phien]
-        ENGINE.update_performance(pred, actual)
-        history_rev.insert(0, actual)
+def algo_entropy_analysis(results, window=15):
+    if len(results) < window: return None
+    recent = results[:window]
+    p_tai = sum(1 for r in recent if r == "Tài") / window
+    p_xiu = 1 - p_tai
+    entropy = 0
+    if p_tai > 0: entropy -= p_tai * math.log2(p_tai)
+    if p_xiu > 0: entropy -= p_xiu * math.log2(p_xiu)
+    if entropy >= 0.95:
+        alt = sum(1 for i in range(4) if results[i] != results[i + 1])
+        if alt >= 3:
+            return (_opp(results[0]), 70, "entropy_alt")
+    if entropy <= 0.5:
+        if _count_streak(results) >= 3:
+            return (_opp(results[0]), 68, "entropy_low_break")
+    return None
 
-    return PREDICTION_CACHE
 
+def algo_multi_window_consensus(results):
+    if len(results) < 15: return None
+    votes = []
+    for w in [5, 7, 10, 15]:
+        if len(results) < w: continue
+        seg = results[:w]
+        tai = sum(1 for r in seg if r == "Tài")
+        ratio = tai / w
+        if ratio >= 0.70: votes.append("Tài")
+        elif ratio <= 0.30: votes.append("Xỉu")
+        else: votes.append(None)
+    valid = [v for v in votes if v is not None]
+    if len(valid) >= 3:
+        if all(v == "Tài" for v in valid): return ("Tài", 65, "mwc_T")
+        if all(v == "Xỉu" for v in valid): return ("Xỉu", 65, "mwc_X")
+    if len(votes) >= 2:
+        if votes[0] == "Tài" and votes[-1] is None: return ("Xỉu", 58, "mwc_rev_X")
+        if votes[0] == "Xỉu" and votes[-1] is None: return ("Tài", 58, "mwc_rev_T")
+    return None
+
+
+def algo_anti_streak(results):
+    if len(results) < 30: return None
+    cur_streak = _count_streak(results)
+    cur_val = results[0]
+    if cur_streak < 3: return None
+    max_streak = 0
+    current = 1
+    for i in range(1, min(len(results), 30)):
+        if results[i] == results[i - 1]:
+            current += 1
+            max_streak = max(max_streak, current)
+        else:
+            current = 1
+    if cur_streak >= max_streak and cur_streak >= 4:
+        return (_opp(cur_val), 72, "anti_streak_max")
+    return None
+
+
+def algo_transition_matrix(results):
+    if len(results) < 25: return None
+    key = tuple(results[:3])
+    trans = Counter()
+    for i in range(len(results) - 3 - 1):
+        if tuple(results[i:i + 3]) == key:
+            trans[results[i + 3]] += 1
+    total = trans["Tài"] + trans["Xỉu"]
+    if total >= 4:
+        p_tai = trans["Tài"] / total
+        if p_tai >= 0.70: return ("Tài", 55, "trans_matrix_T")
+        if p_tai <= 0.30: return ("Xỉu", 55, "trans_matrix_X")
+    return None
+
+
+def algo_streak_length_distribution(results):
+    if len(results) < 40: return None
+    cur_streak = _count_streak(results)
+    cur_val = results[0]
+    streak_lengths = []
+    i = 0
+    while i < min(len(results), 40):
+        j = i
+        while j < len(results) and results[j] == results[i]:
+            j += 1
+        if results[i] == cur_val:
+            streak_lengths.append(j - i)
+        i = j
+    if len(streak_lengths) >= 3:
+        if cur_streak > max(streak_lengths[:-1] if len(streak_lengths) > 1 else streak_lengths):
+            return (_opp(cur_val), 70, "streak_dist_break")
+    return None
+
+
+def algo_md5_deep(results, md5_db):
+    if len(results) < 13: return None
+    tx = encode_tx(results, 13)
+    h = hashlib.md5(f"leminh_v2|{tx}".encode()).hexdigest()
+    if h in md5_db:
+        counts = md5_db[h]
+        total = counts["Tài"] + counts["Xỉu"]
+        if total >= 2:
+            p_tai = (counts["Tài"] + 1) / (total + 2)
+            if p_tai >= 0.65: return ("Tài", 22, "md5_deep")
+            if p_tai <= 0.35: return ("Xỉu", 22, "md5_deep")
+    return None
+
+# =====================================================================
+# 🎯 SIGNAL AGGREGATION - ENGINE V4
+# =====================================================================
+
+def compute_prediction(results, md5_db):
+    """
+    🎯 ENGINE V4: Multi-signal voting với ưu tiên 5P ALTERNATION
+
+    3 tầng:
+    - PRIMARY   (5p variants + 5p phase):  weight 55-90
+    - SECONDARY (streak/pattern/zigzag/ngram): weight 12-82
+    - AUXILIARY (markov/stats/misc):       weight 15-72
+    """
+    if not results:
+        return "Tài", 50
+    if len(results) == 1:
+        return _opp(results[0]), 52
+
+    signals = []
+
+    # 🎯 PRIMARY: 5P FOCUS (đảo thuận nghịch 1-1)
+    for fn in [
+        algo_5p_pattern_v2,
+        algo_alternation_streak,
+        algo_5p_palindrome,
+        algo_5p_majority,
+        algo_5p_with_streak_context,
+    ]:
+        s = fn(results)
+        if s: signals.append(s)
+
+    # 🎯 SECONDARY: pattern structure
+    for fn in [
+        algo_streak_analysis,
+        algo_pattern_match,
+        algo_zigzag_detection,
+        algo_n_gram_backoff,
+        algo_5p_phase_cycle,
+    ]:
+        s = fn(results)
+        if s: signals.append(s)
+
+    # 🎯 AUXILIARY: statistical / misc
+    for fn in [
+        algo_momentum,
+        algo_frequency_bias,
+        algo_trend_break,
+        algo_markov,
+        algo_markov_order3,
+        algo_gap_analysis,
+        algo_entropy_analysis,
+        algo_multi_window_consensus,
+        algo_anti_streak,
+        algo_transition_matrix,
+        algo_streak_length_distribution,
+    ]:
+        s = fn(results)
+        if s: signals.append(s)
+
+    s = algo_md5_deep(results, md5_db)
+    if s: signals.append(s)
+
+    if not signals:
+        return results[0], 52
+
+    st = sum(w for p, w, _ in signals if p == "Tài")
+    sx = sum(w for p, w, _ in signals if p == "Xỉu")
+    total = st + sx
+    if total == 0:
+        return results[0], 50
+
+    if st > sx: pred = "Tài"
+    elif sx > st: pred = "Xỉu"
+    else: return _opp(results[0]), 50
+
+    # Base confidence từ ratio
+    ratio = max(st, sx) / total
+    conf = 50 + (ratio - 0.5) * 100
+
+    # Bonus theo số lượng signals
+    n = len(signals)
+    if n >= 10: conf += 11
+    elif n >= 8: conf += 9
+    elif n >= 6: conf += 6
+    elif n >= 4: conf += 4
+
+    # Bonus theo mức độ đồng thuận
+    agree = sum(w for p, w, _ in signals if p == pred)
+    agree_ratio = agree / total
+    if agree_ratio >= 0.90: conf += 6
+    elif agree_ratio >= 0.80: conf += 4
+    elif agree_ratio >= 0.65: conf += 2
+
+    # 🎯 5P DOMINANCE BONUS: nếu các tín hiệu 5P đều đồng thuận
+    primary_votes = [s for s in signals if s[2].startswith("5p_") or s[2].startswith("alt_") or s[2].startswith("palindrome") or s[2].startswith("majority")]
+    if len(primary_votes) >= 3:
+        primary_preds = {s[0] for s in primary_votes}
+        if primary_preds == {pred}:
+            conf += 5
+
+    conf = int(max(MIN_CONFIDENCE, min(MAX_CONFIDENCE, conf)))
+    return pred, conf
+
+
+def apply_recovery(base_pred, conf, loss_streak, results):
+    """Auto-recovery thông minh"""
+    if loss_streak < 2:
+        return base_pred, conf, False
+    regime = _regime(results) if results else "balanced"
+
+    if loss_streak == 2:
+        if regime == "alternation":
+            return base_pred, max(55, conf - 5), False
+        if conf >= 86:
+            return base_pred, conf, False
+        return _opp(base_pred), min(MAX_CONFIDENCE, max(conf, 75)), True
+
+    if loss_streak >= 3:
+        return _opp(base_pred), min(MAX_CONFIDENCE, conf + 12), True
+    return base_pred, conf, False
+
+
+def compute_loss_streak(valid, md5_db):
+    if len(valid) < 5: return 0
+    streak = 0
+    for i in range(len(valid) - 1, max(2, len(valid) - 8), -1):
+        if i < 3: break
+        hist = [v['result'] for v in valid[:i]][::-1]
+        pred, _ = compute_prediction(hist, md5_db)
+        if pred == valid[i]['result']: break
+        streak += 1
+    return streak
 
 # =====================================================================
 # API & ROUTES
@@ -734,87 +942,53 @@ def fetch_sessions():
                     dices = item.get('dices', [0, 0, 0])
                     dice_str = f"{dices[0]} + {dices[1]} + {dices[2]}"
                     total = item.get('point', sum(dices))
-                    rows.append({
-                        'phien': int(item['id']),
-                        'result': res,
-                        'dice': dice_str,
-                        'total': total
-                    })
+                    rows.append({'phien': int(item['id']), 'result': res, 'dice': dice_str, 'total': total})
                 return rows, True
     except Exception as e:
         print(f"[API ERROR]: {e}")
     return [], False
 
-
 @app.route('/')
 def index():
     return render_template_string(HTML_TEMPLATE)
-
 
 @app.route('/api/history')
 def history():
     global RESET_ID
     try:
-        raw_rows, success = fetch_sessions()
+        raw_rows, _ = fetch_sessions()
         if raw_rows:
-            for row in raw_rows:
-                HISTORY_CACHE[row['phien']] = row
-            for k in [k for k in HISTORY_CACHE if k < RESET_ID]:
-                del HISTORY_CACHE[k]
-
+            for row in raw_rows: HISTORY_CACHE[row['phien']] = row
+            for k in [k for k in HISTORY_CACHE if k < RESET_ID]: del HISTORY_CACHE[k]
         valid = sorted(HISTORY_CACHE.values(), key=lambda x: x['phien'])
         if not valid:
             return jsonify({'rows': [], 'stats': {'total': 0, 'correct': 0}})
-
-        cache = run_deterministic_backtest(valid, RESET_ID)
-
-        history_rev = [v['result'] for v in valid][::-1]
-        next_pred, next_conf, next_label = ENGINE.predict(history_rev)
-        next_phien = valid[-1]['phien'] + 1
-
-        out = [{
-            'phien': next_phien,
-            'is_next': True,
-            'prediction': next_pred,
-            'result': 'Chờ...',
-            'dice': "? + ? + ?",
-            'is_correct': None,
-            'conf': next_conf,
-            'recovery_flipped': False,
-            'loss_streak': 0,
-            'label': next_label
-        }]
-
-        correct_count = 0
-        total_past = 0
-        for v in reversed(valid[-150:]):
-            phien = v['phien']
-            cache_key = (RESET_ID, phien)
-            if cache_key not in cache:
-                continue
-            pred, conf, _ = cache[cache_key]
-            if pred not in ("Tài", "Xỉu"):
-                continue
-            is_correct = (pred == v['result'])
-            total_past += 1
-            if is_correct:
-                correct_count += 1
-
+        md5_db = learn_md5_db(valid)
+        loss_streak = compute_loss_streak(valid, md5_db)
+        out = []; correct_count = 0; total_past = 0
+        history_for_next = [v['result'] for v in valid][::-1]
+        base_pred, base_conf = compute_prediction(history_for_next, md5_db)
+        next_pred, next_conf, flipped = apply_recovery(base_pred, base_conf, loss_streak, history_for_next)
+        out.append({
+            'phien': valid[-1]['phien'] + 1, 'is_next': True,
+            'prediction': next_pred, 'result': 'Chờ...', 'dice': "? + ? + ?",
+            'is_correct': None, 'conf': next_conf,
+            'recovery_flipped': flipped, 'loss_streak': loss_streak
+        })
+        for i in range(len(valid) - 1, max(-1, len(valid) - 150), -1):
+            hist = [v['result'] for v in valid[:i]][::-1]
+            pred, conf = compute_prediction(hist, md5_db) if len(hist) >= 3 else ("-", 50)
+            is_correct = (pred == valid[i]['result']) if pred != "-" else None
+            if is_correct is not None: total_past += 1
+            if is_correct: correct_count += 1
             out.append({
-                'phien': phien,
-                'is_next': False,
-                'prediction': pred,
-                'result': v['result'],
-                'dice': v['dice'],
-                'is_correct': is_correct,
-                'conf': conf,
-                'recovery_flipped': False
+                'phien': valid[i]['phien'], 'is_next': False, 'prediction': pred,
+                'result': valid[i]['result'], 'dice': valid[i]['dice'],
+                'is_correct': is_correct, 'conf': conf, 'recovery_flipped': False
             })
-
         return jsonify({'rows': out, 'stats': {'total': total_past, 'correct': correct_count}})
     except Exception as e:
         return jsonify({'error': str(e), 'rows': [], 'stats': {'total': 0, 'correct': 0}})
-
 
 @app.route('/api/predict')
 def predict():
@@ -822,129 +996,58 @@ def predict():
     try:
         raw_rows, _ = fetch_sessions()
         if raw_rows:
-            for row in raw_rows:
-                HISTORY_CACHE[row['phien']] = row
-            for k in [k for k in HISTORY_CACHE if k < RESET_ID]:
-                del HISTORY_CACHE[k]
-
+            for row in raw_rows: HISTORY_CACHE[row['phien']] = row
+            for k in [k for k in HISTORY_CACHE if k < RESET_ID]: del HISTORY_CACHE[k]
         valid = sorted(HISTORY_CACHE.values(), key=lambda x: x['phien'])
-        if not valid:
-            return jsonify({'error': 'Chưa có dữ liệu'})
-
-        run_deterministic_backtest(valid, RESET_ID)
-
+        if not valid: return jsonify({'error': 'Chưa có dữ liệu'})
         results = [v['result'] for v in valid][::-1]
-        pred, conf, pattern_label = ENGINE.predict(results)
-        ls_5p = format_tx(results, 5)
-
+        md5_db = learn_md5_db(valid)
+        loss_streak = compute_loss_streak(valid, md5_db)
+        base_pred, base_conf = compute_prediction(results, md5_db)
+        pred, conf, flipped = apply_recovery(base_pred, base_conf, loss_streak, results)
         return jsonify({
-            'last_phien': valid[-1]['phien'],
-            'next_phien': valid[-1]['phien'] + 1,
-            'prediction': pred,
-            'confidence': conf,
-            'recovery_flipped': False,
-            'loss_streak': 0,
-            'ls_5p': ls_5p,
-            'pattern_label': pattern_label,
-            'alt_active': ENGINE.last_alt_active,
-            'alt_conf': round(ENGINE.last_alt_conf, 3),
-            'alt_pattern': ENGINE.last_alt_pattern,
-            'deterministic': True,
-            'timestamp': datetime.now().isoformat()
+            'last_phien': valid[-1]['phien'], 'next_phien': valid[-1]['phien'] + 1,
+            'prediction': pred, 'confidence': conf, 'recovery_flipped': flipped,
+            'loss_streak': loss_streak, 'timestamp': datetime.now().isoformat()
         })
     except Exception as e:
         return jsonify({'error': str(e)})
-
-
-@app.route('/api/alternating')
-def alternating_api():
-    """API chuyên biệt: PHÂN TÍCH ĐẢO 1-1 THUẦN trên 5 phiên."""
-    global RESET_ID
-    try:
-        raw_rows, _ = fetch_sessions()
-        if raw_rows:
-            for row in raw_rows:
-                HISTORY_CACHE[row['phien']] = row
-            for k in [k for k in HISTORY_CACHE if k < RESET_ID]:
-                del HISTORY_CACHE[k]
-
-        valid = sorted(HISTORY_CACHE.values(), key=lambda x: x['phien'])
-        if not valid:
-            return jsonify({'error': 'Chưa có dữ liệu'})
-
-        results = [v['result'] for v in valid][::-1]
-
-        alt_pred, alt_conf, alt_pattern = Alt11Analyzer.analyze(results)
-        ls_5p = format_tx(results, 5) or "-"
-
-        is_alternating = alt_pred is not None and alt_conf >= Alt11Analyzer.MIN_CONF
-
-        if is_alternating:
-            verdict = f"ĐẢO 1-1 THUẦN HOÀN HẢO ({alt_pattern})"
-        else:
-            verdict = "Không có cầu đảo 1-1 thuần trên 5 phiên"
-
-        return jsonify({
-            'last_phien': valid[-1]['phien'],
-            'next_phien': valid[-1]['phien'] + 1,
-            'ls_5p': ls_5p,
-            'is_alternating': is_alternating,
-            'prediction': alt_pred if alt_pred else "-",
-            'confidence': round(alt_conf, 3),
-            'pattern': alt_pattern,
-            'verdict': verdict,
-            'rule': "5 phiên khớp TXTXT/XTXTX (flip 4/4)",
-            'deterministic': True,
-            'timestamp': datetime.now().isoformat()
-        })
-    except Exception as e:
-        return jsonify({'error': str(e)})
-
 
 @app.route('/lc79')
-@app.route('/lc79hu')          # ⭐ ROUTE MỚI
+@app.route('/lc79md5')
 def lc79_api():
     global RESET_ID
     try:
         raw_rows, _ = fetch_sessions()
         if raw_rows:
-            for row in raw_rows:
-                HISTORY_CACHE[row['phien']] = row
-            for k in [k for k in HISTORY_CACHE if k < RESET_ID]:
-                del HISTORY_CACHE[k]
-
+            for row in raw_rows: HISTORY_CACHE[row['phien']] = row
+            for k in [k for k in HISTORY_CACHE if k < RESET_ID]: del HISTORY_CACHE[k]
         valid = sorted(HISTORY_CACHE.values(), key=lambda x: x['phien'])
         if not valid:
             return jsonify({'id': '@cskhleminh', 'phien': '-', 'du_doan': '-', 'do_tin_cay': '50%'})
-
-        run_deterministic_backtest(valid, RESET_ID)
-
         results = [v['result'] for v in valid][::-1]
-        pred, conf, pattern_label = ENGINE.predict(results)
-        ls_5p = format_tx(results, 5)
-
+        md5_db = learn_md5_db(valid)
+        loss_streak = compute_loss_streak(valid, md5_db)
+        base_pred, base_conf = compute_prediction(results, md5_db)
+        pred, conf, flipped = apply_recovery(base_pred, base_conf, loss_streak, results)
+        groups = get_groups(results)
+        lich_su = "-" + "-".join(str(g) for g in groups[:4])
         return jsonify({
             'id': '@cskhleminh',
             'phien': str(valid[-1]['phien'] + 1),
             'ket_qua': f"{valid[-1]['result'].lower()} {valid[-1]['dice'].replace(' + ', '-')}",
             'du_doan': pred,
             'do_tin_cay': f"{conf}%",
-            'ls_5p': ls_5p,
-            'cau': pattern_label,
-            'alt_active': ENGINE.last_alt_active,
-            'alt_conf': round(ENGINE.last_alt_conf, 3),
-            'alt_pattern': ENGINE.last_alt_pattern,
-            'auto_flip': False,
-            'chuoi_thua': 0,
-            'deterministic': True
+            'lich_su': lich_su,
+            'auto_flip': flipped,
+            'chuoi_thua': loss_streak
         })
     except Exception as e:
         return jsonify({'id': '@cskhleminh', 'phien': '-', 'du_doan': '-', 'do_tin_cay': '50%', 'error': str(e)})
 
-
 @app.route('/api/reset', methods=['POST'])
 def reset_api():
-    global RESET_ID, HISTORY_CACHE, PREDICTION_CACHE
+    global RESET_ID, HISTORY_CACHE
     try:
         raw_rows, _ = fetch_sessions()
         if raw_rows:
@@ -952,13 +1055,10 @@ def reset_api():
             if valid:
                 RESET_ID = valid[-1]['phien']
                 HISTORY_CACHE = {valid[-1]['phien']: valid[-1]}
-                PREDICTION_CACHE = {}
-                ENGINE.reset_state()
                 return jsonify({'status': 'success', 'reset_to': RESET_ID})
         return jsonify({'status': 'error', 'message': 'Lỗi mạng'})
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)})
-
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
